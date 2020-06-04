@@ -92,7 +92,7 @@ function Tap_Frame.packet(pinfo, tvb, tapinfo)
         elseif protocolList[currentPosition] == "icmp" then
             anonymizerOutput = icmp.anonymize(tvb, protocolList, anonymizationPolicy)
         elseif protocolList[currentPosition] == "icmpv6" then
-            --TODO: Anonymizer
+            anonymizerOutput = icmpv6.anonymize(tvb, protocolList, anonymizationPolicy)
         elseif protocolList[currentPosition] == "tcp" then
             --TODO: Anonymizer
         elseif protocolList[currentPosition] == "udp" then
