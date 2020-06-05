@@ -18,6 +18,18 @@ ICMPv6.pointer = Field.new("icmpv6.pointer")
 --This shows up in Packet Too Big
 ICMPv6.mtu = Field.new("icmpv6.mtu")
 
+--NDP
+ICMPv6.NDP={}
+--These show up in NDP Router Advertisement
+ICMPv6.NDP.RA={}
+ICMPv6.NDP.RA.hopLimit = Field.new("icmpv6.nd.ra.cur_hop_limit")
+ICMPv6.NDP.RA.routerLifetime = Field.new("icmpv6.nd.ra.router_lifetime")
+ICMPv6.NDP.RA.reachableTime = Field.new("icmpv6.nd.ra.reachable_time")
+ICMPv6.NDP.RA.retransTime = Field.new("icmpv6.nd.ra.retrans_timer")
+--Options
+ICMPv6.NDP.RA.OPT={}
+ICMPv6.NDP.RA.OPT.
+
 function ICMPv6.anonymize(tvb, protocolList, anonymizationPolicy)
 
 --Get fields
@@ -78,23 +90,19 @@ local tmpType = ICMPv6.type().value
         --Parameter problem 
         --Get fields
         local icmpPointer = shanonHelpers.getRaw(tvb, ICMPv6.pointer())
-        -- 3 Unused bytes after the pointer. 
-        local icmpUnused = tvb:range(ICMPv6.pointer().offset + 1, 3):bytes():raw()
-        -- Data starts 4 bytes away from pointer offset. 
-        local icmpData = shanonHelpers.getRestFromOffset(tvb, ICMPv6.pointer().offset + 4)
+        -- Data
+        local icmpData = shanonHelpers.getRestFromOffset(tvb, ICMPv6.pointer().offset+ICMPv6.pointer().len)
 
         --Anonymized fields
         local icmpPointerAnon
-        local icmpUnusedAnon
         local icmpDataAnon 
 
         --Anonymize fields
         icmpPointerAnon = icmpPointer
-        icmpUnusedAnon = icmpUnused
         icmpDataAnon = icmpData
 
         --Add anonymized fields to ICMP message
-        icmpMessage = icmpMessage .. icmpPointerAnon .. icmpUnusedAnon .. icmpDataAnon
+        icmpMessage = icmpMessage .. icmpPointerAnon .. icmpDataAnon
 
     elseif tmpType == 2 then
         --Packet Too Big
@@ -112,6 +120,9 @@ local tmpType = ICMPv6.type().value
 
         --Add anonymized fields to ICMP message
         icmpMessage = icmpMessage .. icmpMTUAnon .. icmpDataAnon
+    elseif tmpType == 134 then
+        --NDP router advertisement
+
     else
         --Handle other messages
         --Get data
