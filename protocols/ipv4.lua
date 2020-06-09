@@ -7,6 +7,9 @@ local shanonHelpers = require "shanonHelpers"
 --Module table
 local IPv4={}
 
+--Relative stack position is used to determine which of many possible instances of this protocol is being processed
+IPv4.relativeStackPosition = 1
+
 IPv4.versionIhl = Field.new("ip.version") -- Version and IHL
 IPv4.dscpEcn = Field.new("ip.dsfield") -- DSCP and ECN fields
 IPv4.totalLength = Field.new("ip.len") -- Total length
@@ -20,17 +23,23 @@ IPv4.dst = Field.new("ip.dst") -- Destination Address
 
 
 function IPv4.anonymize(tvb, protocolList, anonymizationPolicy)
+
+    --Create a local relativeStackPosition and decrement the main
+    --That way if any weird behaviour occurs the rest of execution isn't neccessarily compromised
+    local relativeStackPosition = IPv4.relativeStackPosition
+    IPv4.relativeStackPosition = IPv4.relativeStackPosition - 1
+
     --Get fields
-    local ipVersionIhl = shanonHelpers.getRaw(tvb, IPv4.versionIhl())
-    local ipDscpEcn = shanonHelpers.getRaw(tvb, IPv4.dscpEcn())
-    local ipLengh = shanonHelpers.getRaw(tvb, IPv4.totalLength())
-    local ipId = shanonHelpers.getRaw(tvb, IPv4.id())
-    local ipFlags = shanonHelpers.getRaw(tvb, IPv4.flags())
-    local ipTtl = shanonHelpers.getRaw(tvb, IPv4.ttl())
-    local ipProcotol = shanonHelpers.getRaw(tvb, IPv4.protocol())
-    local ipChecksum = shanonHelpers.getRaw(tvb, IPv4.checksum())
-    local ipSrc = shanonHelpers.getRaw(tvb, IPv4.src())
-    local ipDst = shanonHelpers.getRaw(tvb, IPv4.dst())
+    local ipVersionIhl = shanonHelpers.getRaw(tvb, IPv4.versionIhl, relativeStackPosition)
+    local ipDscpEcn = shanonHelpers.getRaw(tvb, IPv4.dscpEcn, relativeStackPosition)
+    local ipLengh = shanonHelpers.getRaw(tvb, IPv4.totalLength, relativeStackPosition)
+    local ipId = shanonHelpers.getRaw(tvb, IPv4.id, relativeStackPosition)
+    local ipFlags = shanonHelpers.getRaw(tvb, IPv4.flags, relativeStackPosition)
+    local ipTtl = shanonHelpers.getRaw(tvb, IPv4.ttl,relativeStackPosition)
+    local ipProcotol = shanonHelpers.getRaw(tvb, IPv4.protocol, relativeStackPosition)
+    local ipChecksum = shanonHelpers.getRaw(tvb, IPv4.checksum, relativeStackPosition)
+    local ipSrc = shanonHelpers.getRaw(tvb, IPv4.src, relativeStackPosition)
+    local ipDst = shanonHelpers.getRaw(tvb, IPv4.dst, relativeStackPosition)
 
     --Anonymized fields. Logical separation so non-anonymized data never makes it into file
     local ipVersionIhlAnon

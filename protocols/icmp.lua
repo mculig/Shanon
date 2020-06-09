@@ -7,6 +7,9 @@ local shanonHelpers = require "shanonHelpers"
 --Module table
 local ICMP={}
 
+--Relative stack position is used to determine which of many possible instances of this protocol is being processed
+ICMP.relativeStackPosition = 1
+
 ICMP.type = Field.new("icmp.type")
 ICMP.code = Field.new("icmp.code")
 ICMP.checksum = Field.new("icmp.checksum")
@@ -23,10 +26,16 @@ ICMP.receiveTimestamp = Field.new("icmp.receive_timestamp")
 ICMP.transmitTimestamp = Field.new("icmp.transmit_timestamp")
 
 function ICMP.anonymize(tvb, protocolList, anonymizationPolicy)
+
+    --Create a local relativeStackPosition and decrement the main
+    --That way if any weird behaviour occurs the rest of execution isn't neccessarily compromised
+    local relativeStackPosition = ICMP.relativeStackPosition
+    ICMP.relativeStackPosition = ICMP.relativeStackPosition - 1
+
     --Get fields
-    local icmpType = shanonHelpers.getRaw(tvb, ICMP.type())
-    local icmpCode = shanonHelpers.getRaw(tvb, ICMP.code())
-    local icmpChecksum = shanonHelpers.getRaw(tvb, ICMP.checksum())
+    local icmpType = shanonHelpers.getRaw(tvb, ICMP.type, relativeStackPosition)
+    local icmpCode = shanonHelpers.getRaw(tvb, ICMP.code, relativeStackPosition)
+    local icmpChecksum = shanonHelpers.getRaw(tvb, ICMP.checksum, relativeStackPosition)
 
     --Anonymized fields. Logical separation so non-anonymized data never makes it into file
     local icmpTypeAnon
@@ -46,9 +55,9 @@ function ICMP.anonymize(tvb, protocolList, anonymizationPolicy)
     if tmpType == 0 or tmpType == 8 then
         --Echo and Echo Reply
         --Get fields
-        local icmpId = shanonHelpers.getRaw(tvb, ICMP.identifier())
-        local icmpSeq = shanonHelpers.getRaw(tvb, ICMP.sequenceNumber())
-        local icmpData = shanonHelpers.getRest(tvb, ICMP.sequenceNumber())
+        local icmpId = shanonHelpers.getRaw(tvb, ICMP.identifier, relativeStackPosition)
+        local icmpSeq = shanonHelpers.getRaw(tvb, ICMP.sequenceNumber, relativeStackPosition)
+        local icmpData = shanonHelpers.getRest(tvb, ICMP.sequenceNumber, relativeStackPosition)
 
         --Anonymize fields 
         local icmpIdAnon = icmpId
@@ -64,12 +73,13 @@ function ICMP.anonymize(tvb, protocolList, anonymizationPolicy)
         --4 unused bytes past the checksum are grabbed from the buffer.
         --This method is used instead of using Field.new("icmp.unused") because there may be used for the unused field
         --but these uses aren't covered by this version of Shanon
-        local offset = ICMP.checksum().offset+ICMP.checksum().len
+        local tmpChecksum = { ICMP.checksum() }
+        local offset = tmpChecksum[relativeStackPosition].offset+tmpChecksum[relativeStackPosition].len
         local icmpUnused = tvb:range(offset, 4):bytes():raw()
         --Add 4 to offset to go past the unused bytes and capture just data
         local offset = offset + 4
         local icmpData = shanonHelpers.getRestFromOffset(tvb, offset)
-        
+
         --Anonymize fields
         local icmpUnusedAnon = icmpUnused
         local icmpDataAnon = icmpData
@@ -80,8 +90,8 @@ function ICMP.anonymize(tvb, protocolList, anonymizationPolicy)
     elseif tmpType == 5 then
         --Redirect
         --Get field
-        local icmpRedirectGateway = shanonHelpers.getRaw(tvb, ICMP.redirectGateway())
-        local icmpData = shanonHelpers.getRest(tvb, ICMP.redirectGateway())
+        local icmpRedirectGateway = shanonHelpers.getRaw(tvb, ICMP.redirectGateway, relativeStackPosition)
+        local icmpData = shanonHelpers.getRest(tvb, ICMP.redirectGateway, relativeStackPosition)
 
         --Anonymize fields
         local icmpRedirectGatewayAnon = icmpRedirectGateway
@@ -92,11 +102,12 @@ function ICMP.anonymize(tvb, protocolList, anonymizationPolicy)
     elseif tmpType == 12 then
         --Parameter problem 
         --Get fields
-        local icmpPointer = shanonHelpers.getRaw(tvb, ICMP.pointer())
+        local icmpPointer = shanonHelpers.getRaw(tvb, ICMP.pointer, relativeStackPosition)
         -- 3 Unused bytes after the pointer. 
-        local icmpUnused = tvb:range(ICMP.pointer().offset + 1, 3):bytes():raw()
+        local tmpPointer = { ICMP.pointer() }
+        local icmpUnused = tvb:range(tmpPointer[relativeStackPosition].offset + 1, 3):bytes():raw()
         -- Data starts 4 bytes away from pointer offset. 
-        local icmpData = shanonHelpers.getRestFromOffset(tvb, ICMP.pointer().offset + 4)
+        local icmpData = shanonHelpers.getRestFromOffset(tvb, tmpPointer[relativeStackPosition].offset + 4)
 
         --Anonymized fields
         local icmpPointerAnon
@@ -114,11 +125,11 @@ function ICMP.anonymize(tvb, protocolList, anonymizationPolicy)
     elseif tmpType == 13 or tmpType == 14 then
         --Timestamp and timestamp reply
         --Get fields
-        local icmpIdentifier = shanonHelpers.getRaw(tvb, ICMP.identifier())
-        local icmpSeq = shanonHelpers.getRaw(tvb, ICMP.sequenceNumber())
-        local icmpOriginateTimestamp = shanonHelpers.getRaw(tvb, ICMP.originateTimestamp())
-        local icmpReceiveTimestamp = shanonHelpers.getRaw(tvb, ICMP.receiveTimestamp())
-        local icmpTransmitTimestamp = shanonHelpers.getRaw(tvb, ICMP.transmitTimestamp())
+        local icmpIdentifier = shanonHelpers.getRaw(tvb, ICMP.identifier, relativeStackPosition)
+        local icmpSeq = shanonHelpers.getRaw(tvb, ICMP.sequenceNumber, relativeStackPosition)
+        local icmpOriginateTimestamp = shanonHelpers.getRaw(tvb, ICMP.originateTimestamp, relativeStackPosition)
+        local icmpReceiveTimestamp = shanonHelpers.getRaw(tvb, ICMP.receiveTimestamp, relativeStackPosition)
+        local icmpTransmitTimestamp = shanonHelpers.getRaw(tvb, ICMP.transmitTimestamp, relativeStackPosition)
 
         --Anonymized fields
         local icmpIdentifierAnon
@@ -140,7 +151,7 @@ function ICMP.anonymize(tvb, protocolList, anonymizationPolicy)
     else
         --Handle other messages
         --Get data
-        local icmpData = shanonHelpers.getRest(tvb, ICMP.checksum())
+        local icmpData = shanonHelpers.getRest(tvb, ICMP.checksum, relativeStackPosition)
 
         --Anonymized fields
         local icmpDataAnon

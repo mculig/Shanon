@@ -5,14 +5,33 @@
 local M = {}
 
 --Helper to get raw bytes
-function M.getRaw(tvb, value)
-	return tvb:range(value.offset,value.len):bytes():raw()
+--When multiple of the same field are present the field extractor returns a table
+--The relativeStackPosition value is used to determine which of the fields to get
+--This can happen when multiple same options are present OR multiple of the same protocol
+function M.getRaw(tvb, fieldExtractor, relativeStackPosition)
+	local fieldInfo = { fieldExtractor() }
+	if fieldInfo[relativeStackPosition] == nil then
+		error("Error getting field " .. fieldExtractor.name .. " in the " .. relativeStackPosition .. ". instance of this protocol in the chain.")
+	end
+	return tvb:range(fieldInfo[relativeStackPosition].offset,fieldInfo[relativeStackPosition].len):bytes():raw()
+end
+
+--Get length bytes following a particular field
+function M.getBytesAfterField(tvb, fieldExtractor, relativeStackPosition, length)
+	local fieldInfo = { fieldExtractor() }
+	if fieldInfo[relativeStackPosition] == nil then
+		error("Error getting " .. length .. " bytes after field: " .. fieldExtractor.name .. " in the " .. relativeStackPosition .. ". instance of this protocol in the chain.")
+	end
+	return tvb:range(fieldInfo[relativeStackPosition].offset + fieldInfo[relativeStackPosition].len, length):bytes():raw()
 end
 
 --Helper to get remaining data
-function M.getRest(tvb, value)
-	--Get all data past the last value. This is just data for us
-	return tvb:range(value.offset+value.len):bytes():raw()
+function M.getRest(tvb, fieldExtractor, relativeStackPosition)
+	local fieldInfo = { fieldExtractor() }
+	if fieldInfo[relativeStackPosition] == nil then
+		error("Error getting remainder of payload after field: " .. fieldExtractor.name .. " in the " .. relativeStackPosition .. ". instance of this protocol in the chain.")
+	end
+	return tvb:range(fieldInfo[relativeStackPosition].offset + fieldInfo[relativeStackPosition].len):bytes():raw()
 end
 
 --Helper to get rest from specific offset
@@ -23,13 +42,24 @@ end
 
 --Helper to split strings
 function M.split(inputString, delimiter)
-	result = {}
-	tableLength = 0
+	local result = {}
+	local tableLength = 0
 	for match in (inputString..delimiter):gmatch("(.-)"..delimiter) do
 		table.insert(result, match)
 		tableLength = tableLength + 1
 	end
 	return result, tableLength
+end
+
+--Helper to count occurences of protocol in table
+function M.countOccurences(inputTable, tableSize, protocolName)
+	local count = 0
+	for i=1,tableSize do
+		if inputTable[i] == protocolName then
+			count = count + 1
+		end
+	end
+	return count
 end
 
 --For logging

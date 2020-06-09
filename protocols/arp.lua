@@ -7,6 +7,9 @@ local shanonHelpers = require "shanonHelpers"
 --Module table
 local ARP={}
 
+--Relative stack position is used to determine which of many possible instances of this protocol is being processed
+ARP.relativeStackPosition = 1
+
 --Fields
 ARP.hwAddrSpace = Field.new("arp.hw.type")
 ARP.protoAddrSpace = Field.new("arp.proto.type")
@@ -19,16 +22,22 @@ ARP.hwAddrDst = Field.new("arp.dst.hw_mac")
 ARP.protoAddrDst = Field.new("arp.dst.proto_ipv4")
 
 function ARP.anonymize(tvb, protocolList, anonymizationPolicy)
+
+    --Create a local relativeStackPosition and decrement the main
+    --That way if any weird behaviour occurs the rest of execution isn't neccessarily compromised
+    local relativeStackPosition = ARP.relativeStackPosition
+    ARP.relativeStackPosition = ARP.relativeStackPosition - 1
+
     --Get fields
-    local arpHwAddrSpace = shanonHelpers.getRaw(tvb, ARP.hwAddrSpace())
-    local arpProtoAddrSpace = shanonHelpers.getRaw(tvb, ARP.protoAddrSpace())
-    local arpHwAddrLength = shanonHelpers.getRaw(tvb, ARP.hwAddrLength())
-    local arpProtoAddrLength = shanonHelpers.getRaw(tvb, ARP.protoAddrLength())
-    local arpOpcode = shanonHelpers.getRaw(tvb, ARP.opcode())
-    local arpHwAddrSrc = shanonHelpers.getRaw(tvb, ARP.hwAddrSrc())
-    local arpProtoAddrSrc = shanonHelpers.getRaw(tvb, ARP.protoAddrSrc())
-    local arpHwAddrDst = shanonHelpers.getRaw(tvb, ARP.hwAddrDst())
-    local arpProtoAddrDst = shanonHelpers.getRaw(tvb, ARP.protoAddrDst())
+    local arpHwAddrSpace = shanonHelpers.getRaw(tvb, ARP.hwAddrSpace, relativeStackPosition)
+    local arpProtoAddrSpace = shanonHelpers.getRaw(tvb, ARP.protoAddrSpace, relativeStackPosition)
+    local arpHwAddrLength = shanonHelpers.getRaw(tvb, ARP.hwAddrLength, relativeStackPosition)
+    local arpProtoAddrLength = shanonHelpers.getRaw(tvb, ARP.protoAddrLength, relativeStackPosition)
+    local arpOpcode = shanonHelpers.getRaw(tvb, ARP.opcode, relativeStackPosition)
+    local arpHwAddrSrc = shanonHelpers.getRaw(tvb, ARP.hwAddrSrc, relativeStackPosition)
+    local arpProtoAddrSrc = shanonHelpers.getRaw(tvb, ARP.protoAddrSrc, relativeStackPosition)
+    local arpHwAddrDst = shanonHelpers.getRaw(tvb, ARP.hwAddrDst, relativeStackPosition)
+    local arpProtoAddrDst = shanonHelpers.getRaw(tvb, ARP.protoAddrDst, relativeStackPosition)
 
     --Anonymized fields. Logical separation so non-anonymized data never makes it into file
     local arpHwAddrSpaceAnon
@@ -51,7 +60,6 @@ function ARP.anonymize(tvb, protocolList, anonymizationPolicy)
     arpProtoAddrSrcAnon = arpProtoAddrSrc
     arpHwAddrDstAnon = arpHwAddrDst
     arpProtoAddrDstAnon = arpProtoAddrDst
-
 
     --Write to the anonymized frame here
     --Variable used for multi-line concat to improve readability
