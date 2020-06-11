@@ -25,6 +25,15 @@ function M.getBytesAfterField(tvb, fieldExtractor, relativeStackPosition, length
 	return tvb:range(fieldInfo[relativeStackPosition].offset + fieldInfo[relativeStackPosition].len, length):bytes():raw()
 end
 
+--Get length bytes at an offset from a particular field
+function M.getBytesAfterFieldWithOffset(tvb, fieldExtractor, relativeStackPosition, offset, length)
+	local fieldInfo = { fieldExtractor() }
+	if fieldInfo[relativeStackPosition] == nil then
+		error("Error getting " .. length .. " bytes at offset " .. offset ..  " bytes from end of field: " .. fieldExtractor.name .. " in the " .. relativeStackPosition .. ". instance of this protocol in the chain.")
+	end
+	return tvb:range(fieldInfo[relativeStackPosition].offset + fieldInfo[relativeStackPosition].len + offset, length):bytes():raw()
+end
+
 --Helper to get remaining data
 function M.getRest(tvb, fieldExtractor, relativeStackPosition)
 	local fieldInfo = { fieldExtractor() }
