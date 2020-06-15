@@ -130,6 +130,12 @@ function Tap_Frame.packet(pinfo, tvb, tapinfo)
                 --Set the output to an empty string so nothing is added to the frame
                 anonymizerOutput = ""
             end
+            --In the particular case of ICMP and ICMPv6 the anonymizedFrame should always be set to empty
+            --This is because we will catch and parse the protocol headers and fields included as a 
+            --partial header/data in the ICMP data as they show up in the list of protocols we get from Wireshark
+            --But we don't want to anonymize partial headers to avoid issues 
+            --Instead we're treating them as data in the ICMP/ICMPv6 anonymizer
+            anonymizedFrame = ""
         elseif protocolList[currentPosition] == "icmpv6" then
             status, anonymizerOutput = pcall(icmpv6.anonymize, tvb, protocolList, anonymizationPolicy)
             if status == false then
@@ -138,6 +144,12 @@ function Tap_Frame.packet(pinfo, tvb, tapinfo)
                 --Set the output to an empty string so nothing is added to the frame
                 anonymizerOutput = ""
             end
+            --In the particular case of ICMP and ICMPv6 the anonymizedFrame should always be set to empty
+            --This is because we will catch and parse the protocol headers and fields included as a 
+            --partial header/data in the ICMP data as they show up in the list of protocols we get from Wireshark
+            --But we don't want to anonymize partial headers to avoid issues 
+            --Instead we're treating them as data in the ICMP/ICMPv6 anonymizer
+            anonymizedFrame = ""
         elseif protocolList[currentPosition] == "tcp" then
             --TODO: Anonymizer
         elseif protocolList[currentPosition] == "udp" then

@@ -10,7 +10,7 @@ local ICMPv6={}
 --Relative stack position is used to determine which of many possible instances of this protocol is being processed
 ICMPv6.relativeStackPosition = 1
 
-
+--ICMP header fields
 ICMPv6.type = Field.new("icmpv6.type")
 ICMPv6.code = Field.new("icmpv6.code")
 ICMPv6.checksum = Field.new("icmpv6.checksum")
@@ -24,12 +24,28 @@ ICMPv6.mtu = Field.new("icmpv6.mtu")
 
 --NDP
 ICMPv6.NDP={}
+--Router solicitation has only reserved field and options so nothing to do here
 --These show up in NDP Router Advertisement
 ICMPv6.NDP.RA={}
 ICMPv6.NDP.RA.hopLimit = Field.new("icmpv6.nd.ra.cur_hop_limit")
 ICMPv6.NDP.RA.routerLifetime = Field.new("icmpv6.nd.ra.router_lifetime")
 ICMPv6.NDP.RA.reachableTime = Field.new("icmpv6.nd.ra.reachable_time")
 ICMPv6.NDP.RA.retransTime = Field.new("icmpv6.nd.ra.retrans_timer")
+--These show up in NDP Neighbor Solicitation
+ICMPv6.NDP.NS = {}
+--Reserved field is marked as reserved here so we'll grab the bytes instead
+ICMPv6.NDP.NS.Target = Field.new("icmpv6.nd.ns.target_address")
+--These show up in NDP Neighbor Advertisement
+ICMPv6.NDP.NA = {}
+--The reserved field is part of the flag field here
+ICMPv6.NDP.NA.Flags = Field.new("icmpv6.nd.na.flag") 
+ICMPv6.NDP.NA.Target = Field.new("icmpv6.nd.na.target_address")
+--These show up in NDP Redirect
+ICMPv6.NDP.RD = {}
+--4 reserved bytes before target address will be grabbed directly
+ICMPv6.NDP.RD.targetAddress = Field.new("icmpv6.nd.rd.target_address")
+ICMPv6.NDP.RD.destinationAddress = Field.new("icmpv6.rd.na.destination_address")
+
 --Options
 ICMPv6.OPT={}
 ICMPv6.OPT.type = Field.new("icmpv6.opt.type")
@@ -161,8 +177,25 @@ function ICMPv6.anonymize(tvb, protocolList, anonymizationPolicy)
 
         --Add anonymized fields to ICMP message
         icmpMessage = icmpMessage .. icmpMTUAnon .. icmpDataAnon
+    elseif tmpType == 133 then
+        --NDP Router Solicitation
+        --Get fields
+        local ndpRsReserved = shanonHelpers.getBytesAfterField(tvb, ICMPv6.checksum, relativeStackPosition, 4)
+
+        --Anonymized fields
+        local ndpRsReservedAnon
+
+        --Anonymize fields
+        ndpRsReservedAnon = ndpRsReserved
+
+        --Add anonymized fields to ICMP message
+        icmpMessage = icmpMessage .. ndpRsReservedAnon
+
+        --Add options to ICMP message
+        icmpMessage = icmpMessage .. handleOptions(tvb)
+
     elseif tmpType == 134 then
-        --NDP router advertisement
+        --NDP Router Advertisement
         --Get fields
         local ndpRaHopLimit = shanonHelpers.getRaw(tvb, ICMPv6.NDP.RA.hopLimit, relativeStackPosition)
         --Get 1 byte after the hop limit which contains the Router Advertisement flags
@@ -185,12 +218,74 @@ function ICMPv6.anonymize(tvb, protocolList, anonymizationPolicy)
         ndpRaReachableAnon = ndpRaReachable
         ndpRaRetransAnon = ndpRaRetrans
 
-        --Ann anonymized fields to ICMP message
+        --Add anonymized fields to ICMP message
         icmpMessage = icmpMessage .. ndpRaHopLimitAnon .. ndpRaFlagsAnon .. ndpRaLifetimeAnon .. ndpRaReachableAnon .. ndpRaRetransAnon
 
        --Add options to ICMP message
        icmpMessage = icmpMessage .. handleOptions(tvb)
+    elseif tmpType == 135 then
+        --NDP Neighbor Solicitation
+        --Get fields
+        --Get reserved field as bytes
+        local ndpNsReserved = shanonHelpers.getBytesAfterField(tvb, ICMPv6.checksum, relativeStackPosition, 4)
+        local ndpNsTargetAddress = shanonHelpers.getRaw(tvb, ICMPv6.NDP.NS.Target, relativeStackPosition)
 
+        --Anonymized fields
+        local ndpNsReservedAnon
+        local ndpNsTargetAddressAnon
+
+        --Anonymize fields
+        ndpNsReservedAnon = ndpNsReserved
+        ndpNsTargetAddressAnon = ndpNsTargetAddress
+
+        --Add anonymized fields to ICMP message
+        icmpMessage = icmpMessage .. ndpNsReservedAnon .. ndpNsTargetAddressAnon
+
+        --Add options to ICMP message
+        icmpMessage = icmpMessage .. handleOptions(tvb)
+
+    elseif tmpType == 136 then
+        --NDP Neighbor Advertisement
+        --Get fields
+        local ndpNaFlags = shanonHelpers.getRaw(tvb, ICMPv6.NDP.NA.Flags, relativeStackPosition)
+        local ndpNaTargetAddress = shanonHelpers.getRaw(tvb, ICMPv6.NDP.NA.Target, relativeStackPosition)
+
+        --Anonymized fields
+        local ndpNaFlagsAnon
+        local ndpNaTargetAddressAnon
+
+        --Anonymize fields
+        ndpNaFlagsAnon = ndpNaFlags
+        ndpNaTargetAddressAnon = ndpNaTargetAddress
+
+        --Add anonymized fields to ICMP message
+        icmpMessage = icmpMessage .. ndpNaFlagsAnon .. ndpNaTargetAddressAnon
+
+        --Add options to ICMP message
+        icmpMessage = icmpMessage .. handleOptions(tvb)
+
+    elseif tmpType == 137 then
+        --Redirect
+        --Get fields
+        local redirectReserved = shanonHelpers.getBytesAfterField(tvb, ICMPv6.checksum, relativeStackPosition, 4)
+        local redirectTarget = shanonHelpers.getRaw(tvb, ICMPv6.NDP.RD.targetAddress, relativeStackPosition)
+        local redirectDestination = shanonHelpers.getRaw(tvb, ICMPv6.NDP.RD.destinationAddress, relativeStackPosition)
+
+        --Anonymized fields
+        local redirectReservedAnon
+        local redirectTargetAnon
+        local redirectDestinationAnon
+
+        --Anonymize fields
+        redirectReservedAnon = redirectReserved
+        redirectTargetAnon = redirectTarget
+        redirectDestinationAnon = redirectDestination
+
+        --Add anonymized fields to icmp message
+        icmpMessage = icmpMessage .. redirectReservedAnon .. redirectTargetAnon .. redirectDestinationAnon
+
+        --Add options to ICMP message
+        icmpMessage = icmpMessage .. handleOptions(tvb)
 
     else
         --Handle other messages
@@ -213,7 +308,6 @@ function ICMPv6.anonymize(tvb, protocolList, anonymizationPolicy)
 end
 
 -- Function to handle ICMPv6 options
-
 function handleOptions(tvb)
 
     --The option payload
