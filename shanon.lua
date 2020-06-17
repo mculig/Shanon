@@ -98,6 +98,9 @@ function Tap_Frame.packet(pinfo, tvb, tapinfo)
         elseif protocolList[currentPosition] == "ethertype" then
             --Nothing needs to be done for this. 
             --ethertype is a faux protocol that just serves to inform that Ethernet II with a type field is in use
+        elseif protocolList[currentPosition] == "ipv6.dstopts" then
+            --Nothing needs to be done for this
+            --ipv6.dstopts is a faux protocol that just serves to inform that an IPv6 Destination Options extension header is in use
         elseif protocolList[currentPosition] == "ip" then
             status, anonymizerOutput = pcall(ipv4.anonymize, tvb, protocolList, anonymizationPolicy)
             if status == false then
