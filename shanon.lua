@@ -98,9 +98,6 @@ function Tap_Frame.packet(pinfo, tvb, tapinfo)
         elseif protocolList[currentPosition] == "ethertype" then
             --Nothing needs to be done for this. 
             --ethertype is a faux protocol that just serves to inform that Ethernet II with a type field is in use
-        elseif protocolList[currentPosition] == "ipv6.dstopts" then
-            --Nothing needs to be done for this
-            --ipv6.dstopts is a faux protocol that just serves to inform that an IPv6 Destination Options extension header is in use
         elseif protocolList[currentPosition] == "ip" then
             status, anonymizerOutput = pcall(ipv4.anonymize, tvb, protocolList, anonymizationPolicy)
             if status == false then
@@ -117,6 +114,18 @@ function Tap_Frame.packet(pinfo, tvb, tapinfo)
                 --Set the output to an empty string so nothing is added to the frame
                 anonymizerOutput = ""
             end
+        elseif protocolList[currentPosition] == "ipv6.dstopts" then
+            --Nothing needs to be done for this
+            --ipv6.dstopts is a faux protocol that just serves to inform that an IPv6 Destination Options extension header is in use
+        elseif protocolList[currentPosition] == "ipv6.routing" then
+            --Nothing needs to be done for this
+            --ipv6.routing is a faux protocol that just serves to inform that an IPv6 Routing extension header is in use
+        elseif protocolList[currentPosition] == "ipv6.hopopts" then
+            --Nothing needs to be done for this
+            --ipv6.hopopts is a faux protocol that just serves to inform that an IPv6 Hop-by-hop Options extension header is in use
+        elseif protocolList[currentPosition] == "ipv6.fraghdr" then
+            --Nothing needs to be done for this
+            --ipv6.fraghdr is a faux protocol that just serves to inform that an IPv6 Fragmentation extension header is in use
         elseif protocolList[currentPosition] == "arp" then
             status, anonymizerOutput = pcall(arp.anonymize, tvb, protocolList, anonymizationPolicy)
             if status == false then

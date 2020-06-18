@@ -25,13 +25,33 @@ IPv6.EXTHDR.NextHeadersLength = 0
 --Store data separately because we'll need to insert next headers when reassembling
 IPv6.EXTHDR.HeaderData = {}
 IPv6.EXTHDR.HeaderDataLength = 0
---Option types used to parse options
-IPv6.EXTHDR.Types = Field.new("ipv6.nxt")
 --Destination Options
 IPv6.EXTHDR.DST = {}
 IPv6.EXTHDR.DST.Count = 1 --Count of Destination Options header
 IPv6.EXTHDR.DST.NextHeaderRaw = ByteArray.new("3c"):raw() --Raw value of Next Header
 IPv6.EXTHDR.DST.Length = Field.new("ipv6.dstopts.len")
+--Data for this header will be grabbed and processed as an array of bytes
+--Fragment Header
+IPv6.EXTHDR.FRAG = {}
+IPv6.EXTHDR.FRAG.Count = 1 
+IPv6.EXTHDR.FRAG.NextHeaderRaw = ByteArray.new("2c"):raw() --Raw value of Next Header
+IPv6.EXTHDR.FRAG.Reserved = Field.new("ipv6.fraghdr.reserved_octet")
+IPv6.EXTHDR.FRAG.OffsetAndFlags = Field.new("ipv6.fraghdr.offset")
+IPv6.EXTHDR.FRAG.Identification = Field.new("ipv6.fraghdr.ident")
+--Hop-by-hop Options header
+IPv6.EXTHDR.HOP = {}
+IPv6.EXTHDR.HOP.Count = 1
+IPv6.EXTHDR.HOP.NextHeaderRaw = ByteArray.new("00"):raw() -- Raw value of Next Header
+IPv6.EXTHDR.HOP.Length = Field.new("ipv6.hopopts.len")
+--Data for this header will be grabbed and processed as an array of bytes
+--Routing Header
+IPv6.EXTHDR.RT = {}
+IPv6.EXTHDR.RT.Count = 1
+IPv6.EXTHDR.RT.NextHeaderRaw = ByteArray.new("2b"):raw() -- Raw value of Next Header
+IPv6.EXTHDR.RT.Length = Field.new("ipv6.routing.len")
+IPv6.EXTHDR.RT.Type = Field.new("ipv6.routing.type")
+IPv6.EXTHDR.RT.SegmentsLeft = Field.new("ipv6.routing.segleft")
+--Rest of the header depends on different routing header types and will be treated as data
 
 
 function IPv6.anonymize(tvb, protocolList, anonymizationPolicy)
@@ -85,12 +105,46 @@ end
 
 function IPv6.handleExtensionHeaders(tvb)
     
+    --Hop-by-hop Options
+    extensionHeaderHopByHopLength = { IPv6.EXTHDR.HOP.Length() }
     --Destination Options
     extensionHeaderDestinationOptionsLength = { IPv6.EXTHDR.DST.Length() }
+    --Routing Header
+    extensionHeaderRoutingLength = { IPv6.EXTHDR.RT.Length() }
+    --Fragment Header
+    extensionHeaderFragmentReserved = { IPv6.EXTHDR.FRAG.Reserved() }
     
-    if extensionHeaderDestinationOptionsLength[IPv6.EXTHDR.DST.Count] ~= nil then
-        --Process these headers here
-        print("Destination options exist!")
+    while extensionHeaderHopByHopLength[IPv6.EXTHDR.HOP.Count] ~= nil do
+        --Calculate length of data following length field in bytes
+        --The length field is expressed in octets, not including the 1st octet. The Next Header and Length fields
+        --are each one octet, or byte, long, so 6 of those bytes belong to data
+        local hopByHopDataLength = extensionHeaderHopByHopLength[IPv6.EXTHDR.HOP.Count].value * 8 + 6
+
+        --Set the NextHeaders field to this header's next header value
+        IPv6.EXTHDR.NextHeadersLength = IPv6.EXTHDR.NextHeadersLength + 1
+        IPv6.EXTHDR.NextHeaders[IPv6.EXTHDR.NextHeadersLength] = IPv6.EXTHDR.HOP.NextHeaderRaw
+
+        --Get fields
+        local hopByHopLength = shanonHelpers.getRaw(tvb, IPv6.EXTHDR.HOP.Length, IPv6.EXTHDR.HOP.Count)
+        local hopByHopOpts = shanonHelpers.getBytesAfterField(tvb, IPv6.EXTHDR.HOP.Length, IPv6.EXTHDR.HOP.Count, hopByHopDataLength)
+    
+        --Anonymized fields
+        local hopByHopLengthAnon
+        local hopByHopOptsAnon
+
+        --Anonymize fields
+        hopByHopLengthAnon = hopByHopLength
+        hopByHopOptsAnon = hopByHopOpts
+
+        --Add fields to HeaderData array
+        IPv6.EXTHDR.HeaderDataLength = IPv6.EXTHDR.HeaderDataLength + 1
+        IPv6.EXTHDR.HeaderData[IPv6.EXTHDR.HeaderDataLength] = hopByHopLengthAnon .. hopByHopOptsAnon
+
+        --Increment Hop-By-Hop Options Count
+        IPv6.EXTHDR.HOP.Count = IPv6.EXTHDR.HOP.Count + 1
+    end
+
+    while extensionHeaderDestinationOptionsLength[IPv6.EXTHDR.DST.Count] ~= nil do
         --Calculate length of data following length field in bytes
         --The length field is expressed in octets, not including the 1st octet. The Next Header and Length fields
         --are each one octet, or byte, long, so 6 of those bytes belong to data
@@ -112,10 +166,82 @@ function IPv6.handleExtensionHeaders(tvb)
 
         --Add fields to HeaderData array
         IPv6.EXTHDR.HeaderDataLength = IPv6.EXTHDR.HeaderDataLength + 1
-        IPv6.EXTHDR.HeaderData[IPv6.EXTHDR.HeaderDataLength] = dstOptLength .. dstOptOptsAnon
+        IPv6.EXTHDR.HeaderData[IPv6.EXTHDR.HeaderDataLength] = dstOptLengthAnon .. dstOptOptsAnon
+
+        --Increment Destination Options Count
+        IPv6.EXTHDR.DST.Count = IPv6.EXTHDR.DST.Count + 1
     end
 
+    while extensionHeaderRoutingLength[IPv6.EXTHDR.RT.Count] ~=nil do
+        --Calculate the length of data following the Segments Left field in bytes
+        --We already fetch Next Header, Length, Routing Type and Segments Left so we add 4 instead of 6
+        local routingDataLength = extensionHeaderRoutingLength[IPv6.EXTHDR.RT.Count].value * 8 + 4
+        
+        --Set the NextHeaders field to this header's next header value
+        IPv6.EXTHDR.NextHeadersLength = IPv6.EXTHDR.NextHeadersLength + 1
+        IPv6.EXTHDR.NextHeaders[IPv6.EXTHDR.NextHeadersLength] = IPv6.EXTHDR.RT.NextHeaderRaw
+        
+        --Get fields
+        local routingLength = shanonHelpers.getRaw(tvb, IPv6.EXTHDR.RT.Length, IPv6.EXTHDR.RT.Count)
+        local routingType = shanonHelpers.getRaw(tvb, IPv6.EXTHDR.RT.Type, IPv6.EXTHDR.RT.Count)
+        local routingSegmentsLeft = shanonHelpers.getRaw(tvb, IPv6.EXTHDR.RT.SegmentsLeft, IPv6.EXTHDR.RT.Count)
+        local routingData = shanonHelpers.getBytesAfterField(tvb, IPv6.EXTHDR.RT.SegmentsLeft, IPv6.EXTHDR.RT.Count, routingDataLength)
+
+        --Anonymized fields
+        local routingLengthAnon
+        local routingTypeAnon
+        local routingSegmentsLeftAnon
+        local routingDataAnon
+
+        --Anonymize fields
+        routingLengthAnon = routingLength
+        routingTypeAnon = routingType
+        routingSegmentsLeftAnon = routingSegmentsLeft
+        routingDataAnon = routingData
+
+        --Add fields to HeaderData array
+        IPv6.EXTHDR.HeaderDataLength = IPv6.EXTHDR.HeaderDataLength + 1
+        IPv6.EXTHDR.HeaderData[IPv6.EXTHDR.HeaderDataLength] = routingLengthAnon .. routingTypeAnon .. routingSegmentsLeftAnon .. routingDataAnon
+
+        --Increment Routing Header Count
+        IPv6.EXTHDR.RT.Count = IPv6.EXTHDR.RT.Count + 1
+    end
+
+    while extensionHeaderFragmentReserved[IPv6.EXTHDR.FRAG.Count] ~=nil do
+
+        --Set the NextHeaders field to this header's next header value
+        IPv6.EXTHDR.NextHeadersLength = IPv6.EXTHDR.NextHeadersLength + 1
+        IPv6.EXTHDR.NextHeaders[IPv6.EXTHDR.NextHeadersLength] = IPv6.EXTHDR.FRAG.NextHeaderRaw
+
+        --Get fields
+        local fragmentHeaderReserved = shanonHelpers.getRaw(tvb, IPv6.EXTHDR.FRAG.Reserved, IPv6.EXTHDR.FRAG.Count)
+        local fragmentHeaderOffsetAndFlags = shanonHelpers.getRaw(tvb, IPv6.EXTHDR.FRAG.OffsetAndFlags, IPv6.EXTHDR.FRAG.Count)
+        local fragmentHeaderIdentification = shanonHelpers.getRaw(tvb, IPv6.EXTHDR.FRAG.Identification, IPv6.EXTHDR.FRAG.Count)
+        
+        --Anonymized fields
+        local fragmentHeaderReservedAnon
+        local fragmentHeaderOffseAndFlagsAnon
+        local fragmentHeaderIdentificationAnon
+
+        --Anonymize fields
+        fragmentHeaderReservedAnon = fragmentHeaderReserved
+        fragmentHeaderOffseAndFlagsAnon = fragmentHeaderOffsetAndFlags
+        fragmentHeaderIdentificationAnon = fragmentHeaderIdentification
+
+        --Add fields to HeaderDataArray
+        IPv6.EXTHDR.HeaderDataLength = IPv6.EXTHDR.HeaderDataLength + 1
+        IPv6.EXTHDR.HeaderData[IPv6.EXTHDR.HeaderDataLength] = fragmentHeaderReservedAnon .. fragmentHeaderOffseAndFlagsAnon .. fragmentHeaderIdentificationAnon
+
+        --Increment Fragment Header Count
+        IPv6.EXTHDR.FRAG.Count = IPv6.EXTHDR.FRAG.Count + 1
+    end
     
+    --Reset all counts
+    IPv6.EXTHDR.HOP.Count = 1
+    IPv6.EXTHDR.DST.Count = 1
+    IPv6.EXTHDR.RT.Count = 1
+    IPv6.EXTHDR.FRAG.Count = 1
+
     --Assemble the full headers
     if IPv6.EXTHDR.NextHeadersLength ~= 0 then
 
