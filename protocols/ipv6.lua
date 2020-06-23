@@ -88,7 +88,7 @@ function IPv6.anonymize(tvb, protocolList, anonymizationPolicy)
     --Handle Extension Headers here
     local nextHeaderValue
     local extensionHeaderData
-    nextHeaderValue, extensionHeaderData = IPv6.handleExtensionHeaders(tvb)
+    nextHeaderValue, extensionHeaderData = handleExtensionHeaders(tvb)
 
     if nextHeaderValue ~= nil then
         --We got a valid result, set the IPv6 next header to the 1st option header in our option chain
@@ -103,7 +103,7 @@ function IPv6.anonymize(tvb, protocolList, anonymizationPolicy)
     return versionClassLabelAnon .. payloadLengthAnon .. nextHeaderAnon .. hopLimitAnon .. srcAnon .. dstAnon .. extensionHeaderData
 end
 
-function IPv6.handleExtensionHeaders(tvb)
+function handleExtensionHeaders(tvb)
     
     --Hop-by-hop Options
     extensionHeaderHopByHopLength = { IPv6.EXTHDR.HOP.Length() }

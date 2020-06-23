@@ -321,6 +321,7 @@ function handleOptions(tvb)
 
     for i,opt in ipairs(ndpOptionTypes) do
 
+        --TODO: Remove print
         print(tostring(opt.value))
 
         if opt.value == 3 then

@@ -114,18 +114,9 @@ function Tap_Frame.packet(pinfo, tvb, tapinfo)
                 --Set the output to an empty string so nothing is added to the frame
                 anonymizerOutput = ""
             end
-        elseif protocolList[currentPosition] == "ipv6.dstopts" then
+        elseif protocolList[currentPosition]:find("ipv6.") then
             --Nothing needs to be done for this
-            --ipv6.dstopts is a faux protocol that just serves to inform that an IPv6 Destination Options extension header is in use
-        elseif protocolList[currentPosition] == "ipv6.routing" then
-            --Nothing needs to be done for this
-            --ipv6.routing is a faux protocol that just serves to inform that an IPv6 Routing extension header is in use
-        elseif protocolList[currentPosition] == "ipv6.hopopts" then
-            --Nothing needs to be done for this
-            --ipv6.hopopts is a faux protocol that just serves to inform that an IPv6 Hop-by-hop Options extension header is in use
-        elseif protocolList[currentPosition] == "ipv6.fraghdr" then
-            --Nothing needs to be done for this
-            --ipv6.fraghdr is a faux protocol that just serves to inform that an IPv6 Fragmentation extension header is in use
+            --The "ipv6." prefix is used to mark ipv6 extension headers, such as "ipv6.dstopts" and should be skipped
         elseif protocolList[currentPosition] == "arp" then
             status, anonymizerOutput = pcall(arp.anonymize, tvb, protocolList, anonymizationPolicy)
             if status == false then
@@ -163,7 +154,13 @@ function Tap_Frame.packet(pinfo, tvb, tapinfo)
             --Instead we're treating them as data in the ICMP/ICMPv6 anonymizer
             anonymizedFrame = ""
         elseif protocolList[currentPosition] == "tcp" then
-            --TODO: Anonymizer
+            status, anonymizerOutput = pcall(tcp.anonymize, tvb, protocolList, anonymizationPolicy)
+            if status == false then
+                --An error was thrown. anonymizerOutput has the error info
+                shanonHelpers.writeLog(shanonHelpers.logError, "TCP anonymizer produced the following error: " .. anonymizerOutput)
+                --Set the output to an empty string so nothing is added to the frame
+                anonymizerOutput = ""
+            end
         elseif protocolList[currentPosition] == "udp" then
             status, anonymizerOutput = pcall(udp.anonymize, tvb, protocolList, anonymizationPolicy)
             if status == false then
