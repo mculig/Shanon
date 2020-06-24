@@ -203,6 +203,46 @@ function handleOptions(tvb)
         elseif kind.value == 5 then
             --SACK
             
+            --Get fields
+            local sackKind = shanonHelpers.getRaw(tvb, TCP.OPT.Kind, i)
+            -- SACK Length will have to be calculated from the sack edges
+            -- Getting the edges here requires some finesse
+            local sackLeftEdges = { TCP.OPT.SACK.LE() }
+            local sackRightEdges = { TCP.OPT.SACK.RE() }
+            local sackPayload = ""
+
+            for i, le in ipairs(sackLeftEdges) do
+                --Get the left and right edge
+                local sackLE = shanonHelpers.getRaw(tvb, TCP.OPT.SACK.LE, i)
+                local sackRE = shanonHelpers.getRaw(tvb, TCP.OPT.SACK.RE, i)
+
+                --Anonymized fields
+                local sackLEAnon
+                local sackREAnon
+
+                --Anonymize fields
+                local sackLEAnon = sackLE
+                local sackREAnon = sackRE
+
+                --Add to payload
+                sackPayload = sackPayload .. sackLEAnon .. sackREAnon
+            end
+
+            --Calculate length
+            local sackLength = ByteArray.new(string.format("%02X", (sackPayload:len() + 2))):raw()
+
+            --Anonymized fields
+            local sackKindAnon
+            local sackLengthAnon
+            local sackPayloadAnon
+
+            --Anonymize fields
+            sackKindAnon = sackKind
+            sackLengthAnon = sackLength
+            sackPayloadAnon = sackPayload
+
+            --Add to Option Data
+            optionData = optionData .. sackKindAnon .. sackLengthAnon .. sackPayloadAnon
 
 
         elseif kind.value == 8 then
