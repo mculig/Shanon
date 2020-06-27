@@ -34,6 +34,23 @@ function M.getBytesAfterFieldWithOffset(tvb, fieldExtractor, relativeStackPositi
 	return tvb:range(fieldInfo[relativeStackPosition].offset + fieldInfo[relativeStackPosition].len + offset, length):bytes():raw()
 end
 
+--Get all fields of a type within the provided boundaries
+function M.getAllWithinBoundariesRaw(tvb, fieldExtractor, leftBoundary, rightBoundary)
+	local fieldInfo = { fieldExtractor() }
+	local count = 0
+	local extractedValues = {}
+	for j, value in ipairs(fieldInfo) do
+		if value.offset > leftBoundary and value.offset <= rightBoundary then
+			count = count + 1
+			extractedValues[count] = M.getRaw(tvb, fieldExtractor, j)
+		elseif value.offset > rightBoundary then 
+			break
+		end
+	end
+
+	return count, extractedValues
+end
+
 --Helper to get remaining data
 function M.getRest(tvb, fieldExtractor, relativeStackPosition)
 	local fieldInfo = { fieldExtractor() }
