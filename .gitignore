@@ -1,4 +1,5 @@
 *.so
 *.csv
 *.pcapng
+*.log
 Tests

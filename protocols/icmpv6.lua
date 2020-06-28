@@ -192,7 +192,7 @@ function ICMPv6.anonymize(tvb, protocolList, anonymizationPolicy)
         icmpMessage = icmpMessage .. ndpRsReservedAnon
 
         --Add options to ICMP message
-        icmpMessage = icmpMessage .. handleOptions(tvb)
+        icmpMessage = icmpMessage .. ICMPv6.handleOptions(tvb)
 
     elseif tmpType == 134 then
         --NDP Router Advertisement
@@ -222,7 +222,7 @@ function ICMPv6.anonymize(tvb, protocolList, anonymizationPolicy)
         icmpMessage = icmpMessage .. ndpRaHopLimitAnon .. ndpRaFlagsAnon .. ndpRaLifetimeAnon .. ndpRaReachableAnon .. ndpRaRetransAnon
 
        --Add options to ICMP message
-       icmpMessage = icmpMessage .. handleOptions(tvb)
+       icmpMessage = icmpMessage .. ICMPv6.handleOptions(tvb)
     elseif tmpType == 135 then
         --NDP Neighbor Solicitation
         --Get fields
@@ -242,7 +242,7 @@ function ICMPv6.anonymize(tvb, protocolList, anonymizationPolicy)
         icmpMessage = icmpMessage .. ndpNsReservedAnon .. ndpNsTargetAddressAnon
 
         --Add options to ICMP message
-        icmpMessage = icmpMessage .. handleOptions(tvb)
+        icmpMessage = icmpMessage .. ICMPv6.handleOptions(tvb)
 
     elseif tmpType == 136 then
         --NDP Neighbor Advertisement
@@ -262,7 +262,7 @@ function ICMPv6.anonymize(tvb, protocolList, anonymizationPolicy)
         icmpMessage = icmpMessage .. ndpNaFlagsAnon .. ndpNaTargetAddressAnon
 
         --Add options to ICMP message
-        icmpMessage = icmpMessage .. handleOptions(tvb)
+        icmpMessage = icmpMessage .. ICMPv6.handleOptions(tvb)
 
     elseif tmpType == 137 then
         --Redirect
@@ -285,7 +285,7 @@ function ICMPv6.anonymize(tvb, protocolList, anonymizationPolicy)
         icmpMessage = icmpMessage .. redirectReservedAnon .. redirectTargetAnon .. redirectDestinationAnon
 
         --Add options to ICMP message
-        icmpMessage = icmpMessage .. handleOptions(tvb)
+        icmpMessage = icmpMessage .. ICMPv6.handleOptions(tvb)
 
     else
         --Handle other messages
@@ -308,7 +308,7 @@ function ICMPv6.anonymize(tvb, protocolList, anonymizationPolicy)
 end
 
 -- Function to handle ICMPv6 options
-function handleOptions(tvb)
+function ICMPv6.handleOptions(tvb)
 
     --The option payload
     local optionPayload = ""

@@ -106,7 +106,7 @@ function TCP.anonymize(tvb, protocolList, currentPosition, previousLayerHeader, 
     --Handle options
     local tcpOffsetCalculated
     local tcpOptions
-    tcpOffsetCalculated, tcpOptions = handleOptions(tvb, relativeStackPosition)
+    tcpOffsetCalculated, tcpOptions = TCP.handleOptions(tvb, relativeStackPosition)
 
     --Get the original offset. These are raw bits
     local tcpOffsetOrg = tcpOffsetReservedFlags:sub(1,1)
@@ -128,7 +128,7 @@ function TCP.anonymize(tvb, protocolList, currentPosition, previousLayerHeader, 
     return tcpHeader
 end
 
-function handleOptions(tvb, relativeStackPosition)
+function TCP.handleOptions(tvb, relativeStackPosition)
 
     --Get list of present options
     local tcpOptionKinds = { TCP.OPT.Kind() }
