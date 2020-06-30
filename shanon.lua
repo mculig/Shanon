@@ -54,10 +54,6 @@ libAnonLua.add_interface(filesystemPath, libAnonLua.LINKTYPE_ETHERNET)
 
 --Function to tap into every frame
 function Tap_Frame.packet(pinfo, tvb, tapinfo)
-    --TODO: Remove temporary prints
-    print "Frame \n"
-
-
     -- Frame info
     local frameNumber = Field_frame_number()
 
@@ -85,7 +81,6 @@ function Tap_Frame.packet(pinfo, tvb, tapinfo)
 
     --TODO: Remove temporary prints
     print(Field_frame_protocols()) 
-
     
     --Current position in protocol stack
     local currentPosition = protocolCount
@@ -102,7 +97,7 @@ function Tap_Frame.packet(pinfo, tvb, tapinfo)
             status, anonymizerOutput = pcall(ipv4.anonymize, tvb, protocolList, anonymizationPolicy)
             if status == false then
                 --An error was thrown. anonymizerOutput has the error info
-                shanonHelpers.writeLog(shanonHelpers.logError, "IPv4 anonymizer produced the following error: " .. anonymizerOutput)
+                shanonHelpers.writeLog(shanonHelpers.logError,"Error in frame: " .. frameNumber.value .. ". " .. "IPv4 anonymizer produced the following error: " .. anonymizerOutput)
                 --Set the output to an empty string so nothing is added to the frame
                 anonymizerOutput = ""
             end
@@ -110,7 +105,7 @@ function Tap_Frame.packet(pinfo, tvb, tapinfo)
             status, anonymizerOutput = pcall(ipv6.anonymize, tvb, protocolList, anonymizationPolicy)
             if status == false then
                 --An error was thrown. anonymizerOutput has the error info
-                shanonHelpers.writeLog(shanonHelpers.logError, "IPv6 anonymizer produced the following error: " .. anonymizerOutput)
+                shanonHelpers.writeLog(shanonHelpers.logError, "Error in frame: " .. frameNumber.value .. ". " .. "IPv6 anonymizer produced the following error: " .. anonymizerOutput)
                 --Set the output to an empty string so nothing is added to the frame
                 anonymizerOutput = ""
             end
@@ -121,7 +116,7 @@ function Tap_Frame.packet(pinfo, tvb, tapinfo)
             status, anonymizerOutput = pcall(arp.anonymize, tvb, protocolList, anonymizationPolicy)
             if status == false then
                 --An error was thrown. anonymizerOutput has the error info
-                shanonHelpers.writeLog(shanonHelpers.logError, "ARP anonymizer produced the following error: " .. anonymizerOutput)
+                shanonHelpers.writeLog(shanonHelpers.logError, "Error in frame: " .. frameNumber.value .. ". " .. "ARP anonymizer produced the following error: " .. anonymizerOutput)
                 --Set the output to an empty string so nothing is added to the frame
                 anonymizerOutput = ""
             end
@@ -129,7 +124,7 @@ function Tap_Frame.packet(pinfo, tvb, tapinfo)
             status, anonymizerOutput = pcall(icmp.anonymize, tvb, protocolList, anonymizationPolicy)
             if status == false then
                 --An error was thrown. anonymizerOutput has the error info
-                shanonHelpers.writeLog(shanonHelpers.logError, "ICMP anonymizer produced the following error: " .. anonymizerOutput)
+                shanonHelpers.writeLog(shanonHelpers.logError, "Error in frame: " .. frameNumber.value .. ". " .. "ICMP anonymizer produced the following error: " .. anonymizerOutput)
                 --Set the output to an empty string so nothing is added to the frame
                 anonymizerOutput = ""
             end
@@ -143,7 +138,7 @@ function Tap_Frame.packet(pinfo, tvb, tapinfo)
             status, anonymizerOutput = pcall(icmpv6.anonymize, tvb, protocolList, anonymizationPolicy)
             if status == false then
                 --An error was thrown. anonymizerOutput has the error info
-                shanonHelpers.writeLog(shanonHelpers.logError, "ICMPv6 anonymizer produced the following error: " .. anonymizerOutput)
+                shanonHelpers.writeLog(shanonHelpers.logError, "Error in frame: " .. frameNumber.value .. ". " .. "ICMPv6 anonymizer produced the following error: " .. anonymizerOutput)
                 --Set the output to an empty string so nothing is added to the frame
                 anonymizerOutput = ""
             end
@@ -157,7 +152,7 @@ function Tap_Frame.packet(pinfo, tvb, tapinfo)
             status, anonymizerOutput = pcall(tcp.anonymize, tvb, protocolList, anonymizationPolicy)
             if status == false then
                 --An error was thrown. anonymizerOutput has the error info
-                shanonHelpers.writeLog(shanonHelpers.logError, "TCP anonymizer produced the following error: " .. anonymizerOutput)
+                shanonHelpers.writeLog(shanonHelpers.logError, "Error in frame: " .. frameNumber.value .. ". " .. "TCP anonymizer produced the following error: " .. anonymizerOutput)
                 --Set the output to an empty string so nothing is added to the frame
                 anonymizerOutput = ""
             end
@@ -165,7 +160,7 @@ function Tap_Frame.packet(pinfo, tvb, tapinfo)
             status, anonymizerOutput = pcall(udp.anonymize, tvb, protocolList, anonymizationPolicy)
             if status == false then
                 --An error was thrown. anonymizerOutput has the error info
-                shanonHelpers.writeLog(shanonHelpers.logError, "UDP anonymizer produced the following error: " .. anonymizerOutput)
+                shanonHelpers.writeLog(shanonHelpers.logError, "Error in frame: " .. frameNumber.value .. ". " .. "UDP anonymizer produced the following error: " .. anonymizerOutput)
                 --Set the output to an empty string so nothing is added to the frame
                 anonymizerOutput = ""
             end
@@ -189,6 +184,7 @@ function Tap_Frame.packet(pinfo, tvb, tapinfo)
     else
         --If the frame is empty we don't write it. We log it.
         --TODO: Log this!
+        shanonHelpers.writeLog(shanonHelpers.logError, "Error in frame: " .. frameNumber.value .. ". " .. "No data to write to output file. This may happen if there was another error or if the lowest layer protocol in this frame could not be processed.")
     end
 
 

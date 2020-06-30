@@ -34,8 +34,8 @@ function M.getBytesAfterFieldWithOffset(tvb, fieldExtractor, relativeStackPositi
 	return tvb:range(fieldInfo[relativeStackPosition].offset + fieldInfo[relativeStackPosition].len + offset, length):bytes():raw()
 end
 
---Get all fields of a type within the provided boundaries
-function M.getAllWithinBoundariesRaw(tvb, fieldExtractor, leftBoundary, rightBoundary)
+--Get all fields of a type within the provided boundaries. If expectedCount is provided, throw error if count doesn't match
+function M.getAllWithinBoundariesRaw(tvb, fieldExtractor, leftBoundary, rightBoundary, expectedCount)
 	local fieldInfo = { fieldExtractor() }
 	local count = 0
 	local extractedValues = {}
@@ -48,7 +48,102 @@ function M.getAllWithinBoundariesRaw(tvb, fieldExtractor, leftBoundary, rightBou
 		end
 	end
 
+	if expectedCount ~= nil then
+		if expectedCount ~= count then
+			error("Error extracting field: " .. fieldExtractor.name .. "Expected " .. expectedCount .. " fields of this type but encountered " .. count)
+		end
+	end
+
 	return count, extractedValues
+end
+
+--Get length bytes after each field of the provided type within boundaries
+--If expectedCount is provided, throw error if count doesn't match
+function M.getBytesAfterFieldWithinBoundariesRaw(tvb, fieldExtractor, leftBoundary, rightBoundary, length, expectedCount)
+	local fieldInfo = { fieldExtractor() }
+	local count = 0
+	local extractedValues = {}
+	for j, value in ipairs(fieldInfo) do
+		local offset = value.offset + value.len
+		if offset > leftBoundary and offset <= rightBoundary then
+			count = count + 1
+			extractedValues[count] = tvb:range(offset, length):bytes():raw()
+		elseif offset > rightBoundary then 
+			break
+		end
+	end
+
+	if expectedCount ~= nil then
+		if expectedCount ~= count then
+			error("Error extracting bytes after field: " .. fieldExtractor.name .. "Expected " .. expectedCount .. " fields of this type but encountered " .. count)
+		end
+	end
+
+	return count, extractedValues
+end
+
+--Get length bytes BEFORE each field of the provided type within boundaries
+--If expectedCount is provided, throw error if count doesn't match
+function M.getBytesBeforeFieldWithinBoundariesRaw(tvb, fieldExtractor, leftBoundary, rightBoundary, length, offset, expectedCount)
+	local fieldInfo = { fieldExtractor() }
+	local count = 0
+	local extractedValues = {}
+	for j, value in ipairs(fieldInfo) do
+		local fieldStart = value.offset - offset
+		if fieldStart > leftBoundary and fieldStart <= rightBoundary then
+			count = count + 1
+			extractedValues[count] = tvb:range(fieldStart, length):bytes():raw()
+		elseif fieldStart > rightBoundary then 
+			break
+		end
+	end
+
+	if expectedCount ~= nil then
+		if expectedCount ~= count then
+			error("Error extracting bytes before field: " .. fieldExtractor.name .. "Expected " .. expectedCount .. " fields of this type but encountered " .. count)
+		end
+	end
+
+	return count, extractedValues
+end
+
+--Get the 1st field within the provided boundaries and throw an error if more than 1
+function M.getOnlyOneWithinBoundariesRaw(tvb, fieldExtractor, leftBoundary, rightBoundary)
+	local count
+	local fields
+
+	count, fields = M.getAllWithinBoundariesRaw(tvb, fieldExtractor, leftBoundary, rightBoundary)
+
+	if count > 1 then
+		error("Error getting field: " .. fieldExtractor.name .. ". Expected 1, found: " .. count)
+	end
+
+	return fields[1]
+end
+
+--Get length bytes or all if length=nil remaining data after a single field within the provided boundaries. Throw an error if more than 1 field is present
+function M.getBytesAfterOnlyOneWithinBoundaries(tvb, fieldExtractor, leftBoundary, rightBoundary, length)
+	local fieldInfo = { fieldExtractor() }
+	local count = 0
+	local offsets = {}
+	for j, value in ipairs(fieldInfo) do
+		if value.offset > leftBoundary and value.offset <= rightBoundary then
+			count = count + 1
+			offsets[count] = value.offset + value.len
+		elseif value.offset > rightBoundary then 
+			break
+		end
+	end
+
+	if count > 1 then
+		error("Error getting bytes after field: " .. fieldExtractor.name .. ". Expected 1 field, found: " .. count)
+	end
+
+	if length ~= nil then
+		return tvb:range(offsets[1], length):bytes():raw()
+	else
+		return tvb:range(offsets[1]):bytes():raw()
+	end
 end
 
 --Helper to get remaining data

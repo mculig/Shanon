@@ -52,8 +52,6 @@ ICMPv6.OPT.type = Field.new("icmpv6.opt.type")
 ICMPv6.OPT.length = Field.new("icmpv6.opt.length")
 --Prefix information
 ICMPv6.OPT.Prefix = {}
---Since multiple same options can in theory exist, we need to apply a count
-ICMPv6.OPT.Prefix.Count = 1
 ICMPv6.OPT.Prefix.PrefixLength = Field.new("icmpv6.opt.prefix.length")
 --1 Byte flags will be extracted from TVB directly
 ICMPv6.OPT.Prefix.ValidLifetime = Field.new("icmpv6.opt.prefix.valid_lifetime")
@@ -62,19 +60,13 @@ ICMPv6.OPT.Prefix.PreferredLifetime = Field.new("icmpv6.opt.prefix.preferred_lif
 ICMPv6.OPT.Prefix.Prefix = Field.new("icmpv6.opt.prefix")
 --Source/Target Link-layer Address
 ICMPv6.OPT.LinkAddress = {}
---Since multiple same options can in theory exist, we need to apply a count
-ICMPv6.OPT.LinkAddress.Count = 1
 ICMPv6.OPT.LinkAddress.LinkAddress = Field.new("icmpv6.opt.linkaddr")
 --MTU
 ICMPv6.OPT.MTU = {}
---Since multiple same options can in theory exist, we need to apply a count
-ICMPv6.OPT.MTU.Count = 1
 --There are 2 bytes of reserved data that need to be fetched before this field
 ICMPv6.OPT.MTU.MTU = Field.new("icmpv6.opt.mtu")
 --Redirect
 ICMPv6.OPT.Redirect = {}
---Since multiple same options can in theory exist, we need to apply a count
-ICMPv6.OPT.Redirect.Count = 1 --Can't imagine having 2 of these options in one NDP message, but support it still
 --Redirected packet
 --6 bytes are reserved and are fetched before this field
 ICMPv6.OPT.Redirect.RedirectedPacket = Field.new("icmpv6.opt.redirected_packet")
@@ -105,15 +97,42 @@ function ICMPv6.anonymize(tvb, protocolList, anonymizationPolicy)
     --Add anonymized header fields to ICMP message
     local icmpMessage = icmpTypeAnon .. icmpCodeAnon .. icmpChecksumAnon
 
+    --Since different ICMP message types may or may not have certain fields
+    --these fields will not have the same relative stack position as the other ICMPv6 header fields
+    --For example an ICMPv6 Echo Identifier from an ICMPv6 Echo that is contained within an ICMPv6 Destination Unreachable message
+    --would have a position of 1 even though the ICMPv6 Echo message has a position of 2. 
+    --Thus these values need to be retrieved not by using the index of the ICMPv6 message itself but by retrieving that value which is within
+    --the area of the TVB where the ICMPv6 header currently being processed is
+
+    --Start of ICMPv6 message
+    local icmpv6Types = { ICMPv6.type() }
+    local icmpv6Start = icmpv6Types[relativeStackPosition].offset
+
+    --End of ICMPv6 message
+    --For this we can simply use the start of the next message. Any ICMPv6 fields between the start of this and the next ICMPv6 message belong to this one
+    local icmpv6End
+    local icmpv6NextType = icmpv6Types[relativeStackPosition+1]
+    if icmpv6NextType ~= nil then
+        --If there is a next ICMPv6 message then the upper limit to where we should look for fields or options is there
+        icmpv6End = icmpv6NextType.offset
+    else
+        --If there is no next ICMPv6 message the result will be nil in which case we just say it goes until the end of the captured buffer.
+        icmpv6End = tvb:len()
+    end
+
+
     --The rest is handled differently for different ICMP types
     local tmp = { ICMPv6.type() }
     local tmpType = tmp[relativeStackPosition].value
     if tmpType == 128 or tmpType == 129 then
         --Echo and Echo Reply
         --Get fields
-        local icmpId = shanonHelpers.getRaw(tvb, ICMPv6.identifier, relativeStackPosition)
-        local icmpSeq = shanonHelpers.getRaw(tvb, ICMPv6.sequenceNumber, relativeStackPosition)
-        local icmpData = shanonHelpers.getRest(tvb, ICMPv6.sequenceNumber, relativeStackPosition)
+        local count
+        local icmpIds
+
+        local icmpId = shanonHelpers.getOnlyOneWithinBoundariesRaw(tvb, ICMPv6.identifier, icmpv6Start, icmpv6End)
+        local icmpSeq = shanonHelpers.getOnlyOneWithinBoundariesRaw(tvb, ICMPv6.sequenceNumber, icmpv6Start, icmpv6End)
+        local icmpData = shanonHelpers.getBytesAfterOnlyOneWithinBoundaries(tvb, ICMPv6.sequenceNumber, icmpv6Start, icmpv6End)
 
         --Anonymize fields 
         local icmpIdAnon = icmpId
@@ -127,11 +146,12 @@ function ICMPv6.anonymize(tvb, protocolList, anonymizationPolicy)
         --Destination unreachable
         --Get fields
         --4 unused bytes past the checksum are grabbed from the buffer.
-        --This method is used instead of using Field.new("icmp.unused") because there may be used for the unused field
+        --This method is used instead of using Field.new("icmp.unused") because there may be future uses for the unused field
         --but these uses aren't covered by this version of Shanon
         local tmpChecksum = { ICMPv6.checksum() }
         local offset = tmpChecksum[relativeStackPosition].offset+tmpChecksum[relativeStackPosition].len
         local icmpUnused = tvb:range(offset, 4):bytes():raw()
+
         --Add 4 to offset to go past the unused bytes and capture just data
         local offset = offset + 4
         local icmpData = shanonHelpers.getRestFromOffset(tvb, offset)
@@ -146,9 +166,9 @@ function ICMPv6.anonymize(tvb, protocolList, anonymizationPolicy)
     elseif tmpType == 4 then
         --Parameter problem 
         --Get fields
-        local icmpPointer = shanonHelpers.getRaw(tvb, ICMPv6.pointer, relativeStackPosition)
+        local icmpPointer = shanonHelpers.getOnlyOneWithinBoundariesRaw(tvb, ICMPv6.pointer, icmpv6Start, icmpv6End)
         -- Data
-        local icmpData = shanonHelpers.getRest(tvb, ICMPv6.pointer, relativeStackPosition)
+        local icmpData = shanonHelpers.getBytesAfterOnlyOneWithinBoundaries(tvb, ICMPv6.pointer, icmpv6Start, icmpv6End)
 
         --Anonymized fields
         local icmpPointerAnon
@@ -164,8 +184,8 @@ function ICMPv6.anonymize(tvb, protocolList, anonymizationPolicy)
     elseif tmpType == 2 then
         --Packet Too Big
         --Get fields
-        local icmpMTU = shanonHelpers.getRaw(tvb, ICMPv6.mtu, relativeStackPosition)
-        local icmpData = shanonHelpers.getRest(tvb, ICMPv6.mtu, relativeStackPosition)
+        local icmpMTU = shanonHelpers.getOnlyOneWithinBoundariesRaw(tvb, ICMPv6.mtu, icmpv6Start, icmpv6End)
+        local icmpData = shanonHelpers.getBytesAfterOnlyOneWithinBoundaries(tvb, ICMPv6.mtu, icmpv6Start, icmpv6End)
 
         --Anonymized fields
         local icmpMTUAnon
@@ -192,17 +212,17 @@ function ICMPv6.anonymize(tvb, protocolList, anonymizationPolicy)
         icmpMessage = icmpMessage .. ndpRsReservedAnon
 
         --Add options to ICMP message
-        icmpMessage = icmpMessage .. ICMPv6.handleOptions(tvb)
+        icmpMessage = icmpMessage .. ICMPv6.handleOptions(tvb, icmpv6Start, icmpv6End)
 
     elseif tmpType == 134 then
         --NDP Router Advertisement
         --Get fields
-        local ndpRaHopLimit = shanonHelpers.getRaw(tvb, ICMPv6.NDP.RA.hopLimit, relativeStackPosition)
+        local ndpRaHopLimit = shanonHelpers.getOnlyOneWithinBoundariesRaw(tvb, ICMPv6.NDP.RA.hopLimit, icmpv6Start, icmpv6End)
         --Get 1 byte after the hop limit which contains the Router Advertisement flags
-        local ndpRaFlags = shanonHelpers.getBytesAfterField(tvb, ICMPv6.NDP.RA.hopLimit, relativeStackPosition, 1)
-        local ndpRaLifetime = shanonHelpers.getRaw(tvb, ICMPv6.NDP.RA.routerLifetime, relativeStackPosition)
-        local ndpRaReachable = shanonHelpers.getRaw(tvb, ICMPv6.NDP.RA.reachableTime, relativeStackPosition)
-        local ndpRaRetrans = shanonHelpers.getRaw(tvb, ICMPv6.NDP.RA.retransTime, relativeStackPosition)
+        local ndpRaFlags = shanonHelpers.getBytesAfterOnlyOneWithinBoundaries(tvb, ICMPv6.NDP.RA.hopLimit, icmpv6Start, icmpv6End, 1)
+        local ndpRaLifetime = shanonHelpers.getOnlyOneWithinBoundariesRaw(tvb, ICMPv6.NDP.RA.routerLifetime,  icmpv6Start, icmpv6End)
+        local ndpRaReachable = shanonHelpers.getOnlyOneWithinBoundariesRaw(tvb, ICMPv6.NDP.RA.reachableTime,  icmpv6Start, icmpv6End)
+        local ndpRaRetrans = shanonHelpers.getOnlyOneWithinBoundariesRaw(tvb, ICMPv6.NDP.RA.retransTime,  icmpv6Start, icmpv6End)
 
         --Anonymized fields
         local ndpRaHopLimitAnon
@@ -222,13 +242,13 @@ function ICMPv6.anonymize(tvb, protocolList, anonymizationPolicy)
         icmpMessage = icmpMessage .. ndpRaHopLimitAnon .. ndpRaFlagsAnon .. ndpRaLifetimeAnon .. ndpRaReachableAnon .. ndpRaRetransAnon
 
        --Add options to ICMP message
-       icmpMessage = icmpMessage .. ICMPv6.handleOptions(tvb)
+       icmpMessage = icmpMessage .. ICMPv6.handleOptions(tvb, icmpv6Start, icmpv6End)
     elseif tmpType == 135 then
         --NDP Neighbor Solicitation
         --Get fields
         --Get reserved field as bytes
-        local ndpNsReserved = shanonHelpers.getBytesAfterField(tvb, ICMPv6.checksum, relativeStackPosition, 4)
-        local ndpNsTargetAddress = shanonHelpers.getRaw(tvb, ICMPv6.NDP.NS.Target, relativeStackPosition)
+        local ndpNsReserved = shanonHelpers.getBytesAfterOnlyOneWithinBoundaries(tvb, ICMPv6.checksum, icmpv6Start, icmpv6End, 4)
+        local ndpNsTargetAddress = shanonHelpers.getOnlyOneWithinBoundariesRaw(tvb, ICMPv6.NDP.NS.Target, icmpv6Start, icmpv6End)
 
         --Anonymized fields
         local ndpNsReservedAnon
@@ -242,13 +262,13 @@ function ICMPv6.anonymize(tvb, protocolList, anonymizationPolicy)
         icmpMessage = icmpMessage .. ndpNsReservedAnon .. ndpNsTargetAddressAnon
 
         --Add options to ICMP message
-        icmpMessage = icmpMessage .. ICMPv6.handleOptions(tvb)
+        icmpMessage = icmpMessage .. ICMPv6.handleOptions(tvb, icmpv6Start, icmpv6End)
 
     elseif tmpType == 136 then
         --NDP Neighbor Advertisement
         --Get fields
-        local ndpNaFlags = shanonHelpers.getRaw(tvb, ICMPv6.NDP.NA.Flags, relativeStackPosition)
-        local ndpNaTargetAddress = shanonHelpers.getRaw(tvb, ICMPv6.NDP.NA.Target, relativeStackPosition)
+        local ndpNaFlags = shanonHelpers.getOnlyOneWithinBoundariesRaw(tvb, ICMPv6.NDP.NA.Flags, icmpv6Start, icmpv6End)
+        local ndpNaTargetAddress = shanonHelpers.getOnlyOneWithinBoundariesRaw(tvb, ICMPv6.NDP.NA.Target, icmpv6Start, icmpv6End)
 
         --Anonymized fields
         local ndpNaFlagsAnon
@@ -262,14 +282,14 @@ function ICMPv6.anonymize(tvb, protocolList, anonymizationPolicy)
         icmpMessage = icmpMessage .. ndpNaFlagsAnon .. ndpNaTargetAddressAnon
 
         --Add options to ICMP message
-        icmpMessage = icmpMessage .. ICMPv6.handleOptions(tvb)
+        icmpMessage = icmpMessage .. ICMPv6.handleOptions(tvb, icmpv6Start, icmpv6End)
 
     elseif tmpType == 137 then
         --Redirect
         --Get fields
-        local redirectReserved = shanonHelpers.getBytesAfterField(tvb, ICMPv6.checksum, relativeStackPosition, 4)
-        local redirectTarget = shanonHelpers.getRaw(tvb, ICMPv6.NDP.RD.targetAddress, relativeStackPosition)
-        local redirectDestination = shanonHelpers.getRaw(tvb, ICMPv6.NDP.RD.destinationAddress, relativeStackPosition)
+        local redirectReserved = shanonHelpers.getBytesAfterOnlyOneWithinBoundaries(tvb, ICMPv6.checksum, icmpv6Start, icmpv6End, 4)
+        local redirectTarget = shanonHelpers.getOnlyOneWithinBoundariesRaw(tvb, ICMPv6.NDP.RD.targetAddress, icmpv6Start, icmpv6End)
+        local redirectDestination = shanonHelpers.getOnlyOneWithinBoundariesRaw(tvb, ICMPv6.NDP.RD.destinationAddress, icmpv6Start, icmpv6End)
 
         --Anonymized fields
         local redirectReservedAnon
@@ -285,7 +305,7 @@ function ICMPv6.anonymize(tvb, protocolList, anonymizationPolicy)
         icmpMessage = icmpMessage .. redirectReservedAnon .. redirectTargetAnon .. redirectDestinationAnon
 
         --Add options to ICMP message
-        icmpMessage = icmpMessage .. ICMPv6.handleOptions(tvb)
+        icmpMessage = icmpMessage .. ICMPv6.handleOptions(tvb, icmpv6Start, icmpv6End)
 
     else
         --Handle other messages
@@ -308,39 +328,40 @@ function ICMPv6.anonymize(tvb, protocolList, anonymizationPolicy)
 end
 
 -- Function to handle ICMPv6 options
-function ICMPv6.handleOptions(tvb)
+function ICMPv6.handleOptions(tvb, icmpv6Start, icmpv6End)
 
     --The option payload
     local optionPayload = ""
 
-    --Get list of present options
-    local ndpOptionTypes = { ICMPv6.OPT.type()  }
-    local ndpOptionLengths = { ICMPv6.OPT.length() }
+    --Prefix information
+    local prefixCount
+    local prefixLengths
 
-    print "Options"
+    --Try and grab a field that will be present if this option is present. This is both used and serves as a test if the option is present
+    prefixCount, prefixLengths = shanonHelpers.getAllWithinBoundariesRaw(tvb, ICMPv6.OPT.Prefix.PrefixLength, icmpv6Start, icmpv6End)
 
-    for i,opt in ipairs(ndpOptionTypes) do
+    if prefixCount ~= 0 then
+        local prefixOptionTypes 
+        local prefixOptionLengths
+        local prefixFlags
+        local prefixValidLifetimes
+        local prefixPreferredLifetimes
+        local prefixReservedFields
+        local prefixPrefixes
+        
+        --To get the option type and length we'll use the getBytesAfterFieldWithinBoundariesRaw function with a negative offset to get fields BEFORE the selected field
+        prefixOptionTypes = select(2, shanonHelpers.getBytesBeforeFieldWithinBoundariesRaw(tvb, ICMPv6.OPT.Prefix.PrefixLength, icmpv6Start, icmpv6End, 1, 2, prefixCount))
+        prefixOptionLengths = select(2, shanonHelpers.getBytesBeforeFieldWithinBoundariesRaw(tvb, ICMPv6.OPT.Prefix.PrefixLength, icmpv6Start, icmpv6End, 1, 1, prefixCount))
+        --prefixLengths goes here in the order of field appearances.
+        prefixFlags = select(2, shanonHelpers.getBytesAfterFieldWithinBoundariesRaw(tvb, ICMPv6.OPT.Prefix.PrefixLength, icmpv6Start, icmpv6End, 1, prefixCount))
+        prefixValidLifetimes = select(2, shanonHelpers.getAllWithinBoundariesRaw(tvb, ICMPv6.OPT.Prefix.ValidLifetime, icmpv6Start, icmpv6End, prefixCount))
+        prefixPreferredLifetimes = select(2, shanonHelpers.getAllWithinBoundariesRaw(tvb, ICMPv6.OPT.Prefix.PreferredLifetime, icmpv6Start, icmpv6End, prefixCount))
+        prefixReservedFields = select(2, shanonHelpers.getBytesAfterFieldWithinBoundariesRaw(tvb, ICMPv6.OPT.Prefix.PreferredLifetime, icmpv6Start, icmpv6End, 4, prefixCount))
+        prefixPrefixes = select(2, shanonHelpers.getAllWithinBoundariesRaw(tvb, ICMPv6.OPT.Prefix.Prefix, icmpv6Start, icmpv6End, prefixCount))
 
-        --TODO: Remove print
-        print(tostring(opt.value))
-
-        if opt.value == 3 then
-            -- Prefix information
-            -- Get fields
-            local prefixType = shanonHelpers.getRaw(tvb, ICMPv6.OPT.type, i)
-            local prefixOptionLength = shanonHelpers.getRaw(tvb, ICMPv6.OPT.length, i)
-            --Using a count variable is necessary because there may be more of the same option
-            local prefixLength = shanonHelpers.getRaw(tvb, ICMPv6.OPT.Prefix.PrefixLength, ICMPv6.OPT.Prefix.Count)
-            --Get flags
-            local prefixFlags = shanonHelpers.getBytesAfterField(tvb, ICMPv6.OPT.Prefix.PrefixLength, ICMPv6.OPT.Prefix.Count, 1)
-            local prefixValidLifetime = shanonHelpers.getRaw(tvb, ICMPv6.OPT.Prefix.ValidLifetime, ICMPv6.OPT.Prefix.Count)
-            local prefixPreferredLifetime = shanonHelpers.getRaw(tvb, ICMPv6.OPT.Prefix.PreferredLifetime, ICMPv6.OPT.Prefix.Count)
-            --Get 4 bytes of reserved space
-            local prefixReserved = shanonHelpers.getBytesAfterFieldWithOffset(tvb, ICMPv6.OPT.Prefix.PreferredLifetime, ICMPv6.OPT.Prefix.Count, 4, 4)
-            local prefixPrefix = shanonHelpers.getRaw(tvb, ICMPv6.OPT.Prefix.Prefix, ICMPv6.OPT.Prefix.Count)
-
+        while prefixCount ~= 0 do
             --Anonymized fields
-            local prefixTypeAnon
+            local prefixOptionTypeAnon
             local prefixOptionLengthAnon
             local prefixLengthAnon
             local prefixFlagsAnon
@@ -350,106 +371,135 @@ function ICMPv6.handleOptions(tvb)
             local prefixPrefixAnon
 
             --Anonymize fields
-            prefixTypeAnon = prefixType
-            prefixOptionLengthAnon = prefixOptionLength
-            prefixLengthAnon = prefixLength
-            prefixFlagsAnon = prefixFlags
-            prefixValidLifetimeAnon = prefixValidLifetime
-            prefixPreferredLifetimeAnon = prefixPreferredLifetime
-            prefixReservedAnon = prefixReserved
-            prefixPrefixAnon = prefixPrefix
+            prefixOptionTypeAnon = prefixOptionTypes[prefixCount]
+            prefixOptionLengthAnon = prefixOptionLengths[prefixCount]
+            prefixLengthAnon = prefixLengths[prefixCount]
+            prefixFlagsAnon = prefixFlags[prefixCount]
+            prefixValidLifetimeAnon = prefixValidLifetimes[prefixCount]
+            prefixPreferredLifetimeAnon = prefixPreferredLifetimes[prefixCount]
+            prefixReservedAnon = prefixReservedFields[prefixCount]
+            prefixPrefixAnon = prefixPrefixes[prefixCount]
 
-            --Add anonymized option to ICMP message
-            optionPayload = optionPayload .. prefixTypeAnon .. prefixOptionLengthAnon .. prefixLengthAnon .. prefixFlagsAnon .. prefixValidLifetimeAnon
+            --Subtract from count
+            prefixCount = prefixCount - 1
+
+            --Add to option payload
+            optionPayload = optionPayload .. prefixOptionTypeAnon .. prefixOptionLengthAnon .. prefixLengthAnon .. prefixFlagsAnon .. prefixValidLifetimeAnon
             optionPayload = optionPayload .. prefixPreferredLifetimeAnon .. prefixReservedAnon .. prefixPrefixAnon
+        end
+    end
 
-            --Increment count
-            ICMPv6.OPT.Prefix.Count = ICMPv6.OPT.Prefix.Count + 1
+    --Source/Target Link-layer Address
+    local llAddrCount
+    local llAddrLinkLayerAddresses 
 
-        elseif opt.value == 1 or opt.value == 2 then
-            --Source/Target Link-layer Address
-            --Get fields
-            local llAddrType = shanonHelpers.getRaw(tvb, ICMPv6.OPT.type, i)
-            local llAddrOptionLength = shanonHelpers.getRaw(tvb, ICMPv6.OPT.length, i)
-            local llAddrLinkLayerAddress = shanonHelpers.getRaw(tvb, ICMPv6.OPT.LinkAddress.LinkAddress, ICMPv6.OPT.LinkAddress.Count)
+    llAddrCount, llAddrLinkLayerAddresses = shanonHelpers.getAllWithinBoundariesRaw(tvb, ICMPv6.OPT.LinkAddress.LinkAddress, icmpv6Start, icmpv6End)
 
+    if llAddrCount ~= 0 then
+        local llAddrOptionTypes
+        local llAddrOptionLengths
+
+        llAddrOptionTypes = select(2, shanonHelpers.getBytesBeforeFieldWithinBoundariesRaw(tvb, ICMPv6.OPT.LinkAddress.LinkAddress, icmpv6Start, icmpv6End, 1, 2, llAddrCount))
+        llAddrOptionLengths = select(2, shanonHelpers.getBytesBeforeFieldWithinBoundariesRaw(tvb, ICMPv6.OPT.LinkAddress.LinkAddress, icmpv6Start, icmpv6End, 1, 1, llAddrCount))
+
+        while llAddrCount ~= 0 do
             --Anonymized fields
-            local llAddrTypeAnon
+            local llAddrOptionTypeAnon
             local llAddrOptionLengthAnon
             local llAddrLinkLayerAddressAnon 
 
             --Anonymize fields
-            llAddrTypeAnon = llAddrType
-            llAddrOptionLengthAnon = llAddrOptionLength
-            llAddrLinkLayerAddressAnon = llAddrLinkLayerAddress
+            llAddrOptionTypeAnon = llAddrOptionTypes[llAddrCount]
+            llAddrOptionLengthAnon = llAddrOptionLengths[llAddrCount]
+            llAddrLinkLayerAddressAnon = llAddrLinkLayerAddresses[llAddrCount]
 
-            --Add anonymized option to ICMP message
-            optionPayload = optionPayload .. llAddrTypeAnon .. llAddrOptionLengthAnon .. llAddrLinkLayerAddressAnon
+            --Subtract from count
+            llAddrCount = llAddrCount - 1
 
-            --Increment count
-            ICMPv6.OPT.LinkAddress.Count = ICMPv6.OPT.LinkAddress.Count + 1
+            --Add to option payload
+            optionPayload = optionPayload .. llAddrOptionTypeAnon .. llAddrOptionLengthAnon .. llAddrLinkLayerAddressAnon
+        end
 
-        elseif opt.value == 5 then
-            -- MTU
-            --Get fields
-            local mtuType = shanonHelpers.getRaw(tvb, ICMPv6.OPT.type, i)
-            local mtuOptionLength = shanonHelpers.getRaw(tvb, ICMPv6.OPT.length, i)
-            local mtuReserved = shanonHelpers.getBytesAfterField(tvb, ICMPv6.OPT.length, i, 2)
-            local mtuMtu = shanonHelpers.getRaw(tvb, ICMPv6.OPT.MTU.MTU, ICMPv6.OPT.MTU.Count)
+    end
+
+    --MTU
+
+    local mtuCount
+    local mtuMtus 
+
+    mtuCount, mtuMtus = shanonHelpers.getAllWithinBoundariesRaw(tvb, ICMPv6.OPT.MTU.MTU, icmpv6Start, icmpv6End)
+
+    if mtuCount ~= 0 then
+        local mtuOptionTypes
+        local mtuOptionLengths
+        local mtuReservedFields
+
+        mtuOptionTypes = select(2, shanonHelpers.getBytesBeforeFieldWithinBoundariesRaw(tvb, ICMPv6.OPT.MTU.MTU, icmpv6Start, icmpv6End, 1, 4, mtuCount))
+        mtuOptionLengths = select(2, shanonHelpers.getBytesBeforeFieldWithinBoundariesRaw(tvb, ICMPv6.OPT.MTU.MTU, icmpv6Start, icmpv6End, 1, 3, mtuCount))
+        mtuReservedFields = select(2, shanonHelpers.getBytesBeforeFieldWithinBoundariesRaw(tvb, ICMPv6.OPT.MTU.MTU, icmpv6Start, icmpv6End, 2, 2, mtuCount))
+
+        while mtuCount ~= 0 do
 
             --Anonymized fields
-            local mtuTypeAnon
+            local mtuOptionTypeAnon
             local mtuOptionLengthAnon
             local mtuReservedAnon
             local mtuMtuAnon
 
             --Anonymize fields
-            mtuTypeAnon = mtuType
-            mtuOptionLengthAnon = mtuOptionLength
-            mtuReservedAnon = mtuReserved
-            mtuMtuAnon = mtuMtu
+            mtuOptionTypeAnon = mtuTypes[mtuCount]
+            mtuOptionLengthAnon = mtuOptionLengths[mtuCount]
+            mtuReservedAnon = mtuReservedFields[mtuCount]
+            mtuMtuAnon = mtuMtus[mtuCount]
+
+            --Subtract from count
+            mtuCount = mtuCount - 1
 
             --Add anonymized option to ICMP message
-            optionPayload = optionPayload .. mtuTypeAnon .. mtuOptionLengthAnon .. mtuReservedAnon .. mtuMtuAnon
+            optionPayload = optionPayload .. mtuOptionTypeAnon .. mtuOptionLengthAnon .. mtuReservedAnon .. mtuMtuAnon
 
-            --Increment count
-            ICMPv6.OPT.MTU.Count = ICMPv6.OPT.MTU.Count + 1
-        
-        elseif opt.value == 4 then
-            --Redirect 
-            --Get fields
-            local redirectType = shanonHelpers.getRaw(tvb, ICMPv6.OPT.type, i)
-            local redirectOptionLength = shanonHelpers.getRaw(tvb, ICMPv6.OPT.length, i)
-            local redirectReserved = shanonHelpers.getBytesAfterField(tvb, ICMPv6.OPT.length, i, 6)
-            local redirectPacket = shanonHelpers.getRaw(tvb, ICMPv6.OPT.Redirect.RedirectedPacket, ICMPv6.OPT.Redirect.Count)
+        end
+
+    end
+    
+    --Redirect
+    local redirectCount
+    local redirectPackets
+
+    redirectCount, redirectPackets = shanonHelpers.getAllWithinBoundariesRaw(tvb, ICMPv6.OPT.Redirect.RedirectedPacket, icmpv6Start, icmpv6End)
+
+    if redirectCount ~= 0 then
+        local redirectOptionTypes
+        local redirectOptionLengths
+        local redirectReservedFields
+
+        redirectOptionTypes = select(2, shanonHelpers.getBytesBeforeFieldWithinBoundariesRaw(tvb, ICMPv6.OPT.Redirect.RedirectedPacket, icmpv6Start, icmpv6End, 1, 8, redirectCount))
+        redirectOptionLengths = select(2, shanonHelpers.getBytesBeforeFieldWithinBoundariesRaw(tvb, ICMPv6.OPT.Redirect.RedirectedPacket, icmpv6Start, icmpv6End, 1, 7, redirectCount))
+        redirectReservedFields = select(2, shanonHelpers.getBytesBeforeFieldWithinBoundariesRaw(tvb, ICMPv6.OPT.Redirect.RedirectedPacket, icmpv6Start, icmpv6End, 6, 6, redirectCount))
+
+        while redirectCount ~= 0 do
 
             --Anonymized fields
-            local redirectTypeAnon
+            local redirectOptionTypeAnon
             local redirectOptionLengthAnon
             local redirectReservedAnon
             local redirectPacketAnon
 
             --Anonymize fields
-            redirectTypeAnon = redirectType
-            redirectOptionLengthAnon = redirectOptionLength
-            redirectReservedAnon = redirectReserved
-            redirectPacketAnon = redirectPacket
+            redirectOptionTypeAnon = redirectOptionTypes[redirectCount]
+            redirectOptionLengthAnon = redirectOptionLengths[redirectCount]
+            redirectReservedAnon = redirectReservedFields[redirectCount]
+            redirectPacketAnon = redirectPackets[redirectCount]
+
+            --Subtract from count
+            redirectCount = redirectCount - 1
 
             --Add anonymized option to ICMP message
-            optionPayload = optionPayload .. redirectTypeAnon .. redirectOptionLengthAnon .. redirectReservedAnon .. redirectPacketAnon
-
-            --Increment count
-            ICMPv6.OPT.Redirect.Count = ICMPv6.OPT.Redirect.Count + 1
+            optionPayload = optionPayload .. redirectOptionTypeAnon .. redirectOptionLengthAnon .. redirectReservedAnon .. redirectPacketAnon
 
         end
     end
     
-    --When we're done parsing options we need to reset the option counts
-    ICMPv6.OPT.Prefix.Count = 1
-    ICMPv6.OPT.LinkAddress.Count = 1
-    ICMPv6.OPT.MTU.Count = 1
-    ICMPv6.OPT.Redirect.Count = 1
-
     --Return the options
     return optionPayload
 end
