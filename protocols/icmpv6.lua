@@ -97,7 +97,7 @@ function ICMPv6.anonymize(tvb, protocolList, anonymizationPolicy)
     --Add anonymized header fields to ICMP message
     local icmpMessage = icmpTypeAnon .. icmpCodeAnon .. icmpChecksumAnon
 
-    --Since different ICMP message types may or may not have certain fields
+    --Since different ICMPv6 message types may or may not have certain fields
     --these fields will not have the same relative stack position as the other ICMPv6 header fields
     --For example an ICMPv6 Echo Identifier from an ICMPv6 Echo that is contained within an ICMPv6 Destination Unreachable message
     --would have a position of 1 even though the ICMPv6 Echo message has a position of 2. 
@@ -148,6 +148,7 @@ function ICMPv6.anonymize(tvb, protocolList, anonymizationPolicy)
         --4 unused bytes past the checksum are grabbed from the buffer.
         --This method is used instead of using Field.new("icmp.unused") because there may be future uses for the unused field
         --but these uses aren't covered by this version of Shanon
+        --The ICMPv6 checksum is always present so no need to account for it maybe not being here
         local tmpChecksum = { ICMPv6.checksum() }
         local offset = tmpChecksum[relativeStackPosition].offset+tmpChecksum[relativeStackPosition].len
         local icmpUnused = tvb:range(offset, 4):bytes():raw()
