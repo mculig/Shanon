@@ -4,6 +4,9 @@
 --Module table
 local M = {}
 
+--We need our library here as well
+local libAnonLua = require "libAnonLua"
+
 --Helper to get raw bytes
 --When multiple of the same field are present the field extractor returns a table
 --The relativeStackPosition value is used to determine which of the fields to get
@@ -205,6 +208,88 @@ function M.writeLog(logType, logString)
 		logFile:write(logWarnTag .. "[" .. timestamp .. "]" .. logString .. "\n")
 	end
 	io.close(logFile)
+end
+
+--Helper to generate a zero payload of a specific length
+--Naive algorithm, but we don't predict having to do this for megabytes of infomation
+function M.generateZeroPayload(lengthBytes)
+	zeroByte = ByteArray.new("00"):raw()
+	result = ""
+	while(lengthBytes~=0) do
+		result = result .. zeroByte
+		lengthBytes = lengthBytes - 1
+	end
+	return result
+end
+
+--Helper to get the length of a string as a number of bytes
+function M.getLengthAsBytes(string, byteCount)
+
+	local length = 0
+	local zeroByte = ByteArray.new("00"):raw()
+
+	if string ~= nil then 
+		length = string:len()
+	end
+
+	--Get length as a hex value
+	local lengthHex = string.format("%x", length)
+
+	--Check if the hex value has an even number of digits and add a 0 to the start if not
+	if lengthHex:len() % 2 ~= 0 then 
+		lengthHex = "0" .. lengthHex
+	end
+
+	--Length as an array of bytes
+	lengthBytes = ByteArray.new(lengthHex):raw()
+
+	--Check if lengthBytes is long enough and if not add bytes to the start
+	--If it's longer we have an error
+	if lengthBytes:len() > byteCount then 
+		error("Error recalculating length. Length takes up more bytes than the provided expected length. Bytes generated: " .. lengthBytes:len() .. "Bytes expected: " .. byteCount)
+	else 
+		local difference = byteCount - lengthBytes:len()
+		while difference > 0 do
+			lengthBytes = zeroByte .. lengthBytes
+			difference = difference - 1
+		end
+	end
+
+	return lengthBytes
+end
+
+--Helpers for dealing with the config file
+
+function M.configGetOutputPath(config)
+	if config ~= nil and config.outputFile ~= nil then 
+		return config.outputFile
+	else
+		M.writeLog(M.logWarn, "No output file path provided in config, file will be stored in same folder as Shanon with the prefix shanon_output_ and the current date and time.")
+		return "shanon_output_" .. os.date("%d_%b_%Y_%H_%M") .. ".pcapng"
+	end
+end
+
+
+--Parse a black marker string and return the direction and length
+--This function does not validate the string so it needs to be validated first
+function M.getBlackMarkerValues(blackMarkerString)
+
+	--Split the black marker into substrings
+	local blackMarkerParameters, parameterCount = M.split(blackMarkerString, "_")
+
+	local blackMarkerDirection
+	local blackMarkerLength
+
+	if blackMarkerParameters[2] == "MSB" then 
+		blackMarkerDirection = libAnonLua.black_marker_MSB
+	else 
+		blackMarkerDirection = libAnonLua.black_marker_LSB
+	end
+
+	blackMarkerLength = tonumber(blackMarkerParameters[3])
+
+	return blackMarkerDirection, blackMarkerLength
+
 end
 
 --Return the module table

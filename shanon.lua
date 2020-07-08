@@ -1,14 +1,17 @@
---Json library
-local dkjson = require "dkjson"
-
 --LibAnonLua, our library
 local libAnonLua = require "libAnonLua"
 
 --Helper functions separated for readability
 local shanonHelpers = require "shanonHelpers"
 
+--Load config file
+--The config file will also be a Lua file
+--This allows for comments and documentation in the config
+local config = require "config.config"
+
+
 --Anonymization policy
---TODO: Parse a file with the policy
+--TODO: Remove this. Policy is part of the config now
 local anonymizationPolicy = nil
 
 --Taps and fields for the various protocols being used
@@ -45,10 +48,8 @@ local udp = require "protocols.udp"
 --TCP
 local tcp = require "protocols.tcp"
 
---TODO: Change filesystem file names based on config
---TODO: Verify success or failure of operations and crash script accordingly
---Create the filesystem we'll be writing to
-local filesystemPath ="test_anon.pcapng"
+--Get the output file path from the config file
+local filesystemPath = shanonHelpers.configGetOutputPath(config)
 libAnonLua.create_filesystem(filesystemPath)
 libAnonLua.add_interface(filesystemPath, libAnonLua.LINKTYPE_ETHERNET)
 
@@ -89,7 +90,9 @@ function Tap_Frame.packet(pinfo, tvb, tapinfo)
         --Reset anonymizerOutput to empty string
         anonymizerOutput = ""
         if protocolList[currentPosition] == "eth" then
-            anonymizerOutput  = ethernet.anonymize(tvb, protocolList, currentPosition, anonymizationPolicy) 
+            anonymizedFrame  = ethernet.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, config) 
+            --TODO: Remove anonymizerOutput completely when all functions are rewritten to replace the entire frame
+            anonymizerOutput = ""
         elseif protocolList[currentPosition] == "ethertype" then
             --Nothing needs to be done for this. 
             --ethertype is a faux protocol that just serves to inform that Ethernet II with a type field is in use
@@ -179,21 +182,27 @@ function Tap_Frame.packet(pinfo, tvb, tapinfo)
     
     --At this point we will have parsed and anonymized all protocolsP
      --We can write the anonymized frame to the capture file
-    if anonymizedFrame ~= "" then
-        libAnonLua.write_packet(filesystemPath, anonymizedFrame, 0) --Optional third parameter: Timestamp
-    else
-        --If the frame is empty we don't write it. We log it.
-        --TODO: Log this!
-        shanonHelpers.writeLog(shanonHelpers.logError, "Error in frame: " .. frameNumber.value .. ". " .. "No data to write to output file. This may happen if there was another error or if the lowest layer protocol in this frame could not be processed.")
+    writePacket(pinfo, anonymizedFrame)
+end
+
+function writePacket(pinfo, anonymizedFrame)
+
+    --Timestamp default value is relative
+    local timestampValue = pinfo.rel_ts
+
+    if config.anonymizationPolicy ~= nil and config.anonymizationPolicy.frame ~= nil and config.anonymizationPolicy.frame.timestamp ~= nil then
+        if config.anonymizationPolicy.frame.timestamp == "Absolute" then
+            timestampValue = pinfo.abs_ts
+        elseif config.anonymizationPolicy.frame.timestamp == "Relative" then
+            timestampValue = pinfo.rel_ts
+        end 
     end
 
-
-end
-
-function calculateChecksums()
-
-end
-
-function writeFrame()
-
+    --Write frame
+    if anonymizedFrame ~= "" then
+        libAnonLua.write_packet(filesystemPath, anonymizedFrame, 0, timestampValue)
+    else
+        --If the frame is empty we don't write it. We log it.
+        shanonHelpers.writeLog(shanonHelpers.logError, "Error in frame: " .. frameNumber.value .. ". " .. "No data to write to output file. This may happen if there was another error or if the lowest layer protocol in this frame could not be processed.")
+    end
 end
