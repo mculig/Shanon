@@ -11,7 +11,6 @@ Config.anonymizationPolicy = {}
 
 --The anonymization policy for the frame as written in the pcapng filesystem
 --This policy only specifies how Shanon should deal with the timestamps of captured frames
-
 Config.anonymizationPolicy.frame = {
     --Options: 
     --Absolute: The absolute time when the packet was captured. 
@@ -19,6 +18,7 @@ Config.anonymizationPolicy.frame = {
     timestamp = "Relative"
 }
 
+--The anonymization policy for Ethernet
 Config.anonymizationPolicy.ethernet = {
     --Frame check sequence
     --Options:
@@ -39,6 +39,34 @@ Config.anonymizationPolicy.ethernet = {
     length = "Recalculate"
 }
 
+--The anonymization policy for IPv4
+Config.anonymizationPolicy.ipv4 = {
+    --The DSCP and ECN fields share a single byte
+    --Options:
+    --Keep: Keep the field as is
+    --BlackMarker: Apply a BlackMarker to the field
+    dscpEcn = "BlackMarker_MSB_8",
+    --The length of the payload
+    --Options:
+    --Keep: Keep the field as is
+    --Recalculate: Calculate new length
+    length = "Recalculate",
+    --The TTL field
+    --Options:
+    --Keep: Keep TTL as it was
+    --SetValue_N: Set the TTL field value to a specific number N
+    TTL = "SetValue_64",
+    --The IPv4 Checksum
+    --Options:
+    --Keep: Keep the field as is
+    --Recalculate: Calculate a new, valid checksum
+    checksum = "Recalculate",
+    --IPv4 Addresses
+    --Options:
+    --BlackMarker: See the BlackMarker syntax example in the ethernet policy
+    --CryptoPAN: Use the CryptoPAN algorithm to anonymize IPv4 addresses
+    address = "CryptoPAN"
+}
 
 --Required. Return the variable created at the start. This must be the last line
 return Config

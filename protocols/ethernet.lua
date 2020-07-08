@@ -27,10 +27,11 @@ Ethernet.defaultPolicy = {
 }
 
 --Policy validation functions for Ethernet policies
-Ethernet.validPolicyOptions = 
+Ethernet.policyValidation = 
 {
-    fcs = {"Recalculate", "Skip"},
-    length = {"Recalculate", "Keep"}
+    fcs = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Recalculate", "Skip"}),
+    address = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep"}, shanonPolicyValidators.validateBlackMarker, nil),
+    length = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Recalculate", "Keep"})
 }
 
 --A minimum Ethernet payload length
@@ -124,12 +125,15 @@ function Ethernet.validatePolicy(config)
     --Otherwise check if each individual policy value is valid
     if config.anonymizationPolicy.ethernet == nil then 
         config.anonymizationPolicy.ethernet = Ethernet.defaultPolicy
-    elseif not shanonPolicyValidators.isPossibleOption(config.anonymizationPolicy.ethernet.fcs, Ethernet.validPolicyOptions.fcs) then 
+    elseif not Ethernet.policyValidation.fcs(config.anonymizationPolicy.ethernet.fcs) then 
         config.anonymizationPolicy.ethernet.fcs = Ethernet.defaultPolicy.fcs 
-    elseif not shanonPolicyValidators.validateBlackMarker(config.anonymizationPolicy.ethernet.address) then 
+        print("Invalid FCS")
+    elseif not Ethernet.policyValidation.address(config.anonymizationPolicy.ethernet.address) then 
         config.anonymizationPolicy.ethernet.address = Ethernet.defaultPolicy.address
-    elseif not shanonPolicyValidators.isPossibleOption(config.anonymizationPolicy.ethernet.length, Ethernet.validPolicyOptions.length) then
+        print("Invalid address")
+    elseif not Ethernet.policyValidation.length(config.anonymizationPolicy.ethernet.length) then
         config.anonymizationPolicy.ethernet.length = Ethernet.defaultPolicy.length
+        print("Invalid length")
     end
 
 end
