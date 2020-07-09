@@ -116,27 +116,29 @@ end
 function Ethernet.validatePolicy(config)
 
     --Check if the config has an anonymizationPolicy
-    --If not, make one
-    if config.anonymizationPolicy == nil then 
-        config.anonymizationPolicy = {}
-    end
+    shanonPolicyValidators.verifyPolicyExists(config)
 
     --If there is no policy for Ethernet, copy the default policy over
     --Otherwise check if each individual policy value is valid
     if config.anonymizationPolicy.ethernet == nil then 
+        shanonHelpers.warnMissingPolicy("Ethernet")
         config.anonymizationPolicy.ethernet = Ethernet.defaultPolicy
-    elseif not Ethernet.policyValidation.fcs(config.anonymizationPolicy.ethernet.fcs) then 
-        config.anonymizationPolicy.ethernet.fcs = Ethernet.defaultPolicy.fcs 
-        print("Invalid FCS")
-    elseif not Ethernet.policyValidation.address(config.anonymizationPolicy.ethernet.address) then 
-        config.anonymizationPolicy.ethernet.address = Ethernet.defaultPolicy.address
-        print("Invalid address")
-    elseif not Ethernet.policyValidation.length(config.anonymizationPolicy.ethernet.length) then
-        config.anonymizationPolicy.ethernet.length = Ethernet.defaultPolicy.length
-        print("Invalid length")
+    else
+        if not Ethernet.policyValidation.fcs(config.anonymizationPolicy.ethernet.fcs) then
+            shanonHelpers.warnUsingDefaultOption("Ethernet", "FCS", Ethernet.defaultPolicy.fcs)
+            config.anonymizationPolicy.ethernet.fcs = Ethernet.defaultPolicy.fcs 
+        end
+        if not Ethernet.policyValidation.address(config.anonymizationPolicy.ethernet.address) then
+            shanonHelpers.warnUsingDefaultOption("Ethernet", "address", Ethernet.defaultPolicy.address)
+            config.anonymizationPolicy.ethernet.address = Ethernet.defaultPolicy.address
+        end
+        if not Ethernet.policyValidation.length(config.anonymizationPolicy.ethernet.length) then
+            shanonHelpers.warnUsingDefaultOption("Ethernet", "length", Ethernet.defaultPolicy.length)
+            config.anonymizationPolicy.ethernet.length = Ethernet.defaultPolicy.length
+        end
     end
 
 end
 
 --Return the module table
-return Ethernet
+return EthernetwarnUsingDefaultOption

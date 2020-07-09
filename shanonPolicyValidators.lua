@@ -75,4 +75,44 @@ function policyValidators.validateBlackMarker(blackMarkerString)
     return false
 end
 
+--Validate the SetValue policy option
+function policyValidators.validateSetValue(setValueString)
+    local patternSetValue = "(SetValue_)%d+"
+
+    --Check if the setValueString is nil
+    if setValueString == nil then 
+        return false
+    end 
+
+    --If the setValueString matches the pattern it passes
+    if "" == string.gsub(setValueString, patternSetValue, "") then
+        return true
+    end
+
+    return false
+end
+
+--Verify that a policy exists in the config and create an empty policy if not
+function policyValidators.verifyPolicyExists(config)
+    if config.anonymizationPolicy == nil then 
+        config.anonymizationPolicy = {}
+        shanonHelpers.writeLog(shanonHelpers.logWarn, "Anonymization policy not found. Default values will be used when anonymizing packets!")
+    end
+end
+
+--Verify an IPv4 subnet
+function policyValidators.verifyIPv4Subnet(subnet)
+    local patternSubnet = "[0-255]%.[0-255]%.[0-255]%.[0-255]%/[0-32]"
+
+    if subnet == nil then 
+        return false
+    end 
+
+    if "" == string.gsub(subnet, patternSubnet, "") then
+        return true
+    end
+
+    return false
+end
+
 return policyValidators

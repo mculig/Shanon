@@ -58,6 +58,7 @@ function Tap_Frame.packet(pinfo, tvb, tapinfo)
     -- Frame info
     local frameNumber = Field_frame_number()
 
+    local status --Status for pcall 
     local anonymizedFrame = "" --Create an empty anonymized frame
     local anonymizerOutput -- To temporarily hold the output of a particular anonymizer
 
@@ -90,20 +91,28 @@ function Tap_Frame.packet(pinfo, tvb, tapinfo)
         --Reset anonymizerOutput to empty string
         anonymizerOutput = ""
         if protocolList[currentPosition] == "eth" then
-            anonymizedFrame  = ethernet.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, config) 
+            status, anonymizedFrame = pcall(ethernet.anonymize, tvb, protocolList, currentPosition, anonymizedFrame, config)
+            if status == false then
+                --An error was thrown. anonymizedFrame has the error info
+                shanonHelpers.writeLog(shanonHelpers.logError, "Error in frame: " .. fameNumber.value .. ". Ethernet anonymizer produced the following error: " .. anonymizedFrame)
+                --Clear the anonymized frame so erroneous output isn't accidentally preserved
+                anonymizedFrame = ""
+            end
             --TODO: Remove anonymizerOutput completely when all functions are rewritten to replace the entire frame
             anonymizerOutput = ""
         elseif protocolList[currentPosition] == "ethertype" then
             --Nothing needs to be done for this. 
             --ethertype is a faux protocol that just serves to inform that Ethernet II with a type field is in use
         elseif protocolList[currentPosition] == "ip" then
-            status, anonymizerOutput = pcall(ipv4.anonymize, tvb, protocolList, anonymizationPolicy)
+            status, anonymizedFrame = pcall(ipv4.anonymize, tvb, protocolList, currentPosition, anonymizedFrame, config)
             if status == false then
                 --An error was thrown. anonymizerOutput has the error info
-                shanonHelpers.writeLog(shanonHelpers.logError,"Error in frame: " .. frameNumber.value .. ". " .. "IPv4 anonymizer produced the following error: " .. anonymizerOutput)
-                --Set the output to an empty string so nothing is added to the frame
-                anonymizerOutput = ""
+                shanonHelpers.writeLog(shanonHelpers.logError,"Error in frame: " .. frameNumber.value .. ". " .. "IPv4 anonymizer produced the following error: " .. anonymizedFrame)
+                --Clear the anonymized frame so erroneous output isn't accidentally preserved
+                anonymizedFrame = ""
             end
+            --TODO: Remove anonymizerOutput completely when all functions are rewritten to replace the entire frame
+            anonymizerOutput = ""
         elseif protocolList[currentPosition] == "ipv6" then
             status, anonymizerOutput = pcall(ipv6.anonymize, tvb, protocolList, anonymizationPolicy)
             if status == false then

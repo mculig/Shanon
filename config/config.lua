@@ -30,7 +30,7 @@ Config.anonymizationPolicy.ethernet = {
     --Keep: Addresses are left unchanged
     --BlackMarker: Use a BlackMarker. The syntax is as follows: BlackMarker_Direction_CountBits. 
     --Example: BlackMarker_MSB_24 would apply the method to the most significant 24 bits
-    -- BlackMarker_LSB_24 would apply the method to the least significant 24 bits
+    --BlackMarker_LSB_24 would apply the method to the least significant 24 bits
     address = "BlackMarker_MSB_24",
     --Payload length
     --Options:
@@ -41,31 +41,46 @@ Config.anonymizationPolicy.ethernet = {
 
 --The anonymization policy for IPv4
 Config.anonymizationPolicy.ipv4 = {
-    --The DSCP and ECN fields share a single byte
-    --Options:
-    --Keep: Keep the field as is
-    --BlackMarker: Apply a BlackMarker to the field
-    dscpEcn = "BlackMarker_MSB_8",
-    --The length of the payload
-    --Options:
-    --Keep: Keep the field as is
-    --Recalculate: Calculate new length
-    length = "Recalculate",
-    --The TTL field
-    --Options:
-    --Keep: Keep TTL as it was
-    --SetValue_N: Set the TTL field value to a specific number N
-    TTL = "SetValue_64",
-    --The IPv4 Checksum
-    --Options:
-    --Keep: Keep the field as is
-    --Recalculate: Calculate a new, valid checksum
-    checksum = "Recalculate",
-    --IPv4 Addresses
-    --Options:
-    --BlackMarker: See the BlackMarker syntax example in the ethernet policy
-    --CryptoPAN: Use the CryptoPAN algorithm to anonymize IPv4 addresses
-    address = "CryptoPAN"
+    --Different anonymization rules can be specified for different subnets
+    --These are optional, but if they exist they will be validated
+    --Any option missing here will be taken from the default specified below
+    subnets = {       
+        ["192.168.1.0/24"] = {
+            address = "Keep",
+            ttl = "SetValue_12"
+        }
+    },
+    --The default rule is applied to each packet that doesn't match a particular subnet
+    --Any option not specified in a subnet's anonymization policy will be taken from this default
+    --Any option not in this default will be taken from a hardcoded default policy
+    default = {
+        --The DSCP and ECN fields share a single byte
+        --Options:
+        --Keep: Keep the field as is
+        --BlackMarker: Apply a BlackMarker to the field
+        dscpEcn = "BlackMarker_MSB_8",
+        --The length of the payload
+        --Options:
+        --Keep: Keep the field as is
+        --Recalculate: Calculate new length
+        length = "Recalculate",
+        --The TTL field
+        --Options:
+        --Keep: Keep TTL as it was
+        --SetValue_N: Set the TTL field value to a specific number N
+        ttl = "SetValue_64",
+        --The IPv4 Checksum
+        --Options:
+        --Keep: Keep the field as is
+        --Recalculate: Calculate a new, valid checksum
+        checksum = "Recalculate",
+        --IPv4 Addresses
+        --Options:
+        --Keep: Keep the IPv4 address unchanged
+        --BlackMarker: See the BlackMarker syntax example in the ethernet policy
+        --CryptoPAN: Use the CryptoPAN algorithm to anonymize IPv4 addresses
+        address = "CryptoPAN"
+    }
 }
 
 --Required. Return the variable created at the start. This must be the last line
