@@ -117,23 +117,23 @@ function IPv4.validatePolicy(config)
             config.anonymizationPolicy.ipv4.default = IPv4.defaultPolicy.default
         end
         if not IPv4.policyValidation.dscpEcn(config.anonymizationPolicy.ipv4.default.dscpEcn) then 
-            shanonHelpers.warnUsingDefaultOption("IPv4", "DSCP/ECN", Ethernet.defaultPolicy.dscpEcn)
+            shanonHelpers.warnUsingDefaultOption("IPv4", "DSCP/ECN", IPv4.defaultPolicy.default.dscpEcn)
             config.anonymizationPolicy.ipv4.default.dscpEcn = IPv4.defaultPolicy.default.dscpEcn
         end
         if not IPv4.policyValidation.length(config.anonymizationPolicy.ipv4.default.length) then
-            shanonHelpers.warnUsingDefaultOption("IPv4", "length", Ethernet.defaultPolicy.length)
+            shanonHelpers.warnUsingDefaultOption("IPv4", "length", IPv4.defaultPolicy.default.length)
             config.anonymizationPolicy.ipv4.default.length = IPv4.defaultPolicy.default.length
         end
         if not IPv4.policyValidation.ttl(config.anonymizationPolicy.ipv4.default.ttl) then
-            shanonHelpers.warnUsingDefaultOption("IPv4", "TTL", Ethernet.defaultPolicy.ttl)
+            shanonHelpers.warnUsingDefaultOption("IPv4", "TTL", IPv4.defaultPolicy.default.ttl)
             config.anonymizationPolicy.ipv4.default.ttl = IPv4.defaultPolicy.default.ttl 
         end
         if not IPv4.policyValidation.checksum(config.anonymizationPolicy.ipv4.default.checksum) then
-            shanonHelpers.warnUsingDefaultOption("IPv4", "checksum", Ethernet.defaultPolicy.checksum)
+            shanonHelpers.warnUsingDefaultOption("IPv4", "checksum", IPv4.defaultPolicy.default.checksum)
             config.anonymizationPolicy.ipv4.default.checksum = IPv4.defaultPolicy.default.checksum
         end
-        if not IPv4.policyValidation.address(config.anonymizationPolicy.ipv4.address) then
-            shanonHelpers.warnUsingDefaultOption("IPv4", "address", Ethernet.defaultPolicy.address)
+        if not IPv4.policyValidation.address(config.anonymizationPolicy.ipv4.default.address) then
+            shanonHelpers.warnUsingDefaultOption("IPv4", "address", IPv4.defaultPolicy.default.address)
             config.anonymizationPolicy.ipv4.default.address = IPv4.defaultPolicy.default.address
         end
     end
@@ -142,8 +142,8 @@ function IPv4.validatePolicy(config)
     if config.anonymizationPolicy.ipv4.subnets ~= nil then 
         for subnet, policy in pairs(config.anonymizationPolicy.ipv4.subnets) do
             if not shanonPolicyValidators.verifyIPv4Subnet(subnet) then
-                shanonHelpers.writeLog(shanonHelpers.logWarn, "Invalid subnet: " .. subnet .. "  in IPv4 config. Default settings will be applied to this subnet")
-                table.remove(config.anonymizationPolicy.ipv.subnets, subnet)
+                shanonHelpers.writeLog(shanonHelpers.logWarn, "Invalid subnet: " .. subnet .. " in IPv4 config. Default settings will be applied to this subnet")
+                policy[subnet] = nil
                 --Lua has no continue...so annoying
                 goto continueSubnet
             else

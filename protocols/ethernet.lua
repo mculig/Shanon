@@ -141,4 +141,4 @@ function Ethernet.validatePolicy(config)
 end
 
 --Return the module table
-return EthernetwarnUsingDefaultOption
+return Ethernet

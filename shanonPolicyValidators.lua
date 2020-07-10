@@ -102,7 +102,7 @@ end
 
 --Verify an IPv4 subnet
 function policyValidators.verifyIPv4Subnet(subnet)
-    local patternSubnet = "[0-255]%.[0-255]%.[0-255]%.[0-255]%/[0-32]"
+    local patternSubnet = "%d+%.%d+%.%d+%.%d+%/%d+"
 
     if subnet == nil then 
         return false
