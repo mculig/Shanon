@@ -44,9 +44,9 @@ Config.anonymizationPolicy.ipv4 = {
     --Different anonymization rules can be specified for different subnets
     --These are optional, but if they exist they will be validated
     --Any option missing here will be taken from the default specified below
+    --These options will be applied if the source or destination address is in the subnet
     subnets = {       
         ["192.168.1.0/24"] = {
-            address = "Keep",
             ttl = "SetValue_12"
         }
     },
@@ -64,6 +64,17 @@ Config.anonymizationPolicy.ipv4 = {
         --Keep: Keep the field as is
         --Recalculate: Calculate new length
         length = "Recalculate",
+        --The IPv4 ID field
+        --Options:
+        --Keep: Keep the field as is
+        --BlackMarker: See the BlackMarker syntax example in the ethernet policy
+        id = "BlackMarker_MSB_16",
+        --The IPv4 Reserved, Flags and Fragment Offset fields
+        --These are all treated as one field. 1 bit is reserved, 2 are flags (Don't fragment and More Fragments), 13 bits are the Fragment Offset
+        --Options:
+        --Keep: Keep the field as is
+        --BlackMarker: See the BlackMarker syntax example in the ethernet policy 
+        flagsAndOffset = "BlackMarker_MSB_16",
         --The TTL field
         --Options:
         --Keep: Keep TTL as it was
@@ -75,11 +86,17 @@ Config.anonymizationPolicy.ipv4 = {
         --Recalculate: Calculate a new, valid checksum
         checksum = "Recalculate",
         --IPv4 Addresses
+        --Different anonymization rules can be specified for different subnets.
+        --Multiple rules can be specified as part of a table of rules and will be applied in the order of appearance
+        --The default is applied to any address not part of a defined subnet
         --Options:
         --Keep: Keep the IPv4 address unchanged
         --BlackMarker: See the BlackMarker syntax example in the ethernet policy
         --CryptoPAN: Use the CryptoPAN algorithm to anonymize IPv4 addresses
-        address = "CryptoPAN"
+        address = {
+            ["192.168.1.0/24"] = {"Keep"},
+            default = {"BlackMarker_MSB_8", "CryptoPAN"}
+        }
     }
 }
 
