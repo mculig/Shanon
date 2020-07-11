@@ -44,7 +44,7 @@ IPv4.policyValidation = {
     flagsAndOffset = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep"}, shanonPolicyValidators.validateBlackMarker, nil),
     ttl = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep"}, shanonPolicyValidators.validateSetValue, nil),
     checksum = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep", "Recalculate"}),
-    address = shanonPolicyValidators.keyValidatedTableMultiValidatorFactory(shanonPolicyValidators.verifyIPv4Subnet, true, false, shanonPolicyValidators.isPossibleOption, {"Keep", "CryptoPAN"}, shanonPolicyValidators.validateBlackMarker, nil)
+    address = shanonPolicyValidators.keyValidatedTableMultiValidatorFactory(shanonPolicyValidators.verifyIPv4Subnet, true, shanonPolicyValidators.isPossibleOption, {"Keep", "CryptoPAN"}, shanonPolicyValidators.validateBlackMarker, nil)
 }
 --Is the anonymization policy valid. This check need only be done once
 IPv4.policyIsValid = false
@@ -93,6 +93,7 @@ function IPv4.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, con
     local policy
 
     --Check if our source or destination addresses match any of the subnets specified in the policy and if yes use that specific policy
+    --TODO: Verify that subnet policy exists before doing this
     for subnet, subnetPolicy in pairs(config.anonymizationPolicy.ipv4.subnets) do
         if libAnonLua.ip_in_subnet(ipSrc, subnet) or libAnonLua.ip_in_subnet(ipDst, subnet) then
             policy = subnetPolicy
@@ -188,6 +189,9 @@ function IPv4.validatePolicy(config)
     --Verify each of the individual subnet policies and specified subnets are valid
     if config.anonymizationPolicy.ipv4.subnets ~= nil then 
         for subnet, policy in pairs(config.anonymizationPolicy.ipv4.subnets) do
+            if next(policy) == nil then
+                shanonHelpers.writeLog(shanonHelpers.logWarn, "Invalid subnet: " .. subnet .. " in IPv4 subnet config. Policy cannot be empty. Default settings will be applied to this subnet")
+            end
             if not shanonPolicyValidators.verifyIPv4Subnet(subnet) then
                 shanonHelpers.writeLog(shanonHelpers.logWarn, "Invalid subnet: " .. subnet .. " in IPv4 subnet config. Default settings will be applied to this subnet")
                 policy[subnet] = nil

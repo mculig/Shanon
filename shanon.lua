@@ -7,7 +7,11 @@ local shanonHelpers = require "shanonHelpers"
 --Load config file
 --The config file will also be a Lua file
 --This allows for comments and documentation in the config
-local config = require "config.config"
+local configStatus, config = pcall(require, "config.config")
+if configStatus == false then 
+    shanonHelpers.writeLog(shanonHelpers.logWarn, "Error loading config file. Loading produced the following error: " .. config .. " Defaults will be used.")
+    config = {}
+end
 
 
 --Anonymization policy
@@ -94,7 +98,7 @@ function Tap_Frame.packet(pinfo, tvb, tapinfo)
             status, anonymizedFrame = pcall(ethernet.anonymize, tvb, protocolList, currentPosition, anonymizedFrame, config)
             if status == false then
                 --An error was thrown. anonymizedFrame has the error info
-                shanonHelpers.writeLog(shanonHelpers.logError, "Error in frame: " .. fameNumber.value .. ". Ethernet anonymizer produced the following error: " .. anonymizedFrame)
+                shanonHelpers.writeLog(shanonHelpers.logError, "Error in frame: " .. frameNumber.value .. ". Ethernet anonymizer produced the following error: " .. anonymizedFrame)
                 --Clear the anonymized frame so erroneous output isn't accidentally preserved
                 anonymizedFrame = ""
             end

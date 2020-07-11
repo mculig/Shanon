@@ -1,5 +1,7 @@
 local policyValidators = {}
 
+local shanonHelpers = require "shanonHelpers"
+
 --The main validation function 
 --This function will accept multiple functions and parameters to test inputs
 --and returning a function that can be called with a provided policy option to verify this option meets
@@ -117,43 +119,50 @@ end
 
 --Validator that runs multiple validators on the values of a table with keys that also need validation
 --If any single key is invalid, return false
-function policyValidators.keyValidatedTableMultiValidatorFactory(keyValidationFunction, tableHasDefault, mustMatchAll, ...)
+function policyValidators.keyValidatedTableMultiValidatorFactory(keyValidationFunction, tableHasDefault, ...)
     local args = {...}
     return function(policyOption)
-        local policyIsValid = true
         --Need to check if the policy is nil
-        if policyOption == nil then 
+        if policyOption == nil then
             return false
         end
         -- Actual validation
         for key, policyRow in pairs(policyOption) do
+            if next(policyRow) == nil then
+                --An empty row isn't a valid configuration
+                return false
+            end
             --For every key
             if keyValidationFunction(key) or (tableHasDefault and key == "default") then
-                --Key is correct, validate policy
                 for i, policyItem in ipairs(policyRow) do
                     --For every item in the policy
+                    local matchesAtLeastOne = false
                     for j, validator in ipairs(args) do 
                         --For every validator
                         if type(validator) == "function" then 
                             --If the validator is a function, execute it
                             local result = validator(policyItem, args[j+1])
-                            if result and not mustMatchAll then
-                                --TODO: Logic doesn't work right here. Check what the hell is going on. Also verify that logic is good in other validation factory as it may not be
-                                --If the result is valid and we don't need to match every single validator then return true
-                                policyIsValid = policyIsValid and true
-                            elseif not result and mustMatchAll then 
-                                --If we need to match every single validator and even one returns false, we return false
-                                policyIsValid = policyIsValid and false
+                            if result then 
+                                --If at least one validator returns true then it's valid
+                                matchesAtLeastOne = result
+                                break
                             end
                         end
+                    end
+                    if not matchesAtLeastOne then
+                        --If even one of the strings does not match even one validator then return false
+                        shanonHelpers.writeLog(shanonHelpers.logWarn, "Validated configuration item \"" .. policyItem .. "\" did not meet validation criteria. See warnings below for the exact setting that produced this warning.")
+                        return false
                     end
                 end
             else
                 --Wrong key
+                shanonHelpers.writeLog(shanonHelpers.logWarn, "Invalid key value: \"" .. key .. "\" in configuration. See warnings below for the exact setting that produced this warning.")
                 return false
             end
         end
-        return policyIsValid
+        --If we reach here without returning false, the policy is valid
+        return true
     end
 end
 
