@@ -22,6 +22,7 @@ Config.anonymizationPolicy.frame = {
 }
 
 --The anonymization policy for Ethernet
+--The address anonymization method used here is also used to anonymize MAC addresses in ARP
 Config.anonymizationPolicy.ethernet = {
     --Frame check sequence
     --Options:
@@ -43,6 +44,7 @@ Config.anonymizationPolicy.ethernet = {
 }
 
 --The anonymization policy for IPv4
+--The address anonymization method used here is also used to anonymize IPv4 addresses in ARP
 Config.anonymizationPolicy.ipv4 = {
     --Different anonymization rules can be specified for different subnets
     --These are optional, but if they exist they will be validated

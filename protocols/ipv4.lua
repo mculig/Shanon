@@ -152,6 +152,7 @@ function IPv4.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, con
     local srcAnonymized = false
     local dstAnonymized = false
 
+    --Check if our addresses match any of the specified subnets and anonymize accordingly
     for subnet, anonymizationMethods in pairs(policy.address) do
         if subnet == "default" then 
             --Skip default here. If neither address is in any of the subnets then we'll default later
