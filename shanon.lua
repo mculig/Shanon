@@ -57,6 +57,13 @@ local filesystemPath = shanonHelpers.configGetOutputPath(config)
 libAnonLua.create_filesystem(filesystemPath)
 libAnonLua.add_interface(filesystemPath, libAnonLua.LINKTYPE_ETHERNET)
 
+--Get the CryptoPAN key file
+local cryptoPANKeyFile = shanonHelpers.configGetCryptoPANKeyFile(config)
+local cryptoPANStatus = libAnonLua.init_cryptoPAN(cryptoPANKeyFile)
+if cryptoPANStatus == -1 then 
+    shanonHelpers.writeLog(shanonHelpers.logError, "Failed to initialize CryptoPAN, anonymizers requiring CryptoPAN will fail!")
+end
+
 --Function to tap into every frame
 function Tap_Frame.packet(pinfo, tvb, tapinfo)
     -- Frame info

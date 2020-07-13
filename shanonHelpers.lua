@@ -236,13 +236,20 @@ function M.generateZeroPayload(lengthBytes)
 end
 
 --Helper to get the length of a string as a number of bytes
-function M.getLengthAsBytes(string, byteCount)
+function M.getLengthAsBytes(string, byteCount, addToLength)
 
 	local length = 0
 	local zeroByte = ByteArray.new("00"):raw()
 
 	if string ~= nil then 
 		length = string:len()
+	else
+		length = 0
+	end
+
+	--If we need to add a fixed amount of bytes to length, such as when we have a known-lenght header being added on top of a payload
+	if addToLength ~= nil then 
+		length = length + addToLength
 	end
 
 	--Get length as a hex value
@@ -254,7 +261,7 @@ function M.getLengthAsBytes(string, byteCount)
 	end
 
 	--Length as an array of bytes
-	lengthBytes = ByteArray.new(lengthHex):raw()
+	local lengthBytes = ByteArray.new(lengthHex):raw()
 
 	--Check if lengthBytes is long enough and if not add bytes to the start
 	--If it's longer we have an error
@@ -271,14 +278,68 @@ function M.getLengthAsBytes(string, byteCount)
 	return lengthBytes
 end
 
+--Helper to turn SetValue_number values into bytes
+function M.getSetValueBytes(setValueString, byteCount)
+	
+	local zeroByte = ByteArray.new("00"):raw()
+
+	--Split the setValueString into substrings
+	local setValueParameters, parameterCount = M.split(setValueString, "_")
+
+	local numberString = setValueParameters[2]
+
+	local numberValue = tonumber(numberString)
+
+	--Just a precaution. This should never happen because we validate the SetValue options with a lua expression when validating the config
+	if numberValue == nil then
+		numberValue = 0
+		M.writeLog(M.logError, "Error in function getSetValueBytes in shanonHelpers. Function tonumber returned nil when converting string to number. This is a bug in Shanon itself.")
+	end
+
+	--Get number value as hex
+	local numberValueHex = string.format("%x", numberValue)
+
+	--Check if the hex value has an even number of digits and add a 0 to the start if not
+	if numberValueHex:len() % 2 ~= 0 then 
+		numberValueHex = "0" .. numberValueHex
+	end
+
+	--Number value as an array of bytes
+	local numberValueBytes = ByteArray.new(numberValueHex):raw()
+
+	--Check if we ended up with enough bytes
+	if numberValueBytes:len() > byteCount then 
+		error("Error converting SetValue option to byte array for insertion into protocol field. Conversion of numerical value produced " .. numberValueBytes:len() .. " bytes, but " .. byteCount .. "expected.")
+	else 
+		local difference = byteCount - numberValueBytes:len()
+		while difference > 0 do
+			numberValueBytes = zeroByte .. numberValueBytes
+			difference = difference - 1
+		end
+	end
+
+	return numberValueBytes
+end
+
 --Helpers for dealing with the config file
 
+--Get the config file path
 function M.configGetOutputPath(config)
 	if config ~= nil and config.outputFile ~= nil then 
 		return config.outputFile
 	else
 		M.writeLog(M.logWarn, "No output file path provided in config, file will be stored in same folder as Shanon with the prefix shanon_output_ and the current date and time.")
 		return "shanon_output_" .. os.date("%d_%b_%Y_%H_%M") .. ".pcapng"
+	end
+end
+
+--Get the CryptoPAN key file
+function M.configGetCryptoPANKeyFile(config)
+	if config ~=nil and config.cryptoPANKeyFile ~= nil then
+		return config.cryptoPANKeyFile
+	else 
+		M.writeLog(M.logWarn, "No CryptoPAN key file path provided in config, file will be stored in same folder as Shanon with the prefix shanon_cyrptoPAN_key and the current date and time.")
+		return "shanon_cryptoPAN_key_" .. os.date("%d_%b_%Y_%H_%M") .. ".key"
 	end
 end
 

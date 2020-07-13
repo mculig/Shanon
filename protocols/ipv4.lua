@@ -88,16 +88,17 @@ function IPv4.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, con
 
     --Anonymize stuff here
 
-    --Check if the address is in any of the subnets we have
+    --TODO: Check if anonymizedFrame is empty and apply a minimum payload
 
     local policy
 
-    --Check if our source or destination addresses match any of the subnets specified in the policy and if yes use that specific policy
-    --TODO: Verify that subnet policy exists before doing this
-    for subnet, subnetPolicy in pairs(config.anonymizationPolicy.ipv4.subnets) do
-        if libAnonLua.ip_in_subnet(ipSrc, subnet) or libAnonLua.ip_in_subnet(ipDst, subnet) then
-            policy = subnetPolicy
-            break
+    --Check if we have a policy for subnets and if our source or destination addresses match any of the subnets specified in the policy
+    if config.anonymizationPolicy.ipv4.subnets ~= nil then 
+        for subnet, subnetPolicy in pairs(config.anonymizationPolicy.ipv4.subnets) do
+            if libAnonLua.ip_in_subnet(ipSrc, subnet) or libAnonLua.ip_in_subnet(ipDst, subnet) then
+                policy = subnetPolicy
+                break
+            end
         end
     end
 
@@ -106,9 +107,9 @@ function IPv4.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, con
         policy = config.anonymizationPolicy.ipv4.default
     end
 
-    --TODO: Apply correct version/ihl values, log if incorrect values/values that mean options were present were found
-    --TODO: Passing the packet number to these functions for logs like this would be good
-    ipVersionIhlAnon = ipVersionIhl
+    --Version/IHL is set to a default 45
+    --TODO: Should values that don't match be logged?
+    ipVersionIhlAnon = ByteArray.new("45"):raw()
 
     if policy.dscpEcn == "Keep" then
         ipDscpEcnAnon = ipDscpEcn
@@ -120,36 +121,77 @@ function IPv4.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, con
     if policy.length == "Keep" then
         ipLengthAnon = ipLengh
     else      
-        ipLengthAnon = shanonHelpers.getLengthAsBytes(anonymizedFrame, 2)
+        ipLengthAnon = shanonHelpers.getLengthAsBytes(anonymizedFrame, 2, 20)
     end
     
-    --TODO: Add policy for IP id field
-    ipIdAnon = ipId
+    if policy.id == "Keep" then 
+        ipIdAnon = ipId
+    else
+        local blackMarkerDirection, blackMarkerLength = shanonHelpers.getBlackMarkerValues(policy.id)
+        ipIdAnon = libAnonLua.black_marker(ipId, blackMarkerLength, blackMarkerDirection)
+    end
 
-    --TODO: Add policy for IP flags
-    ipFlagsAnon = ipFlags
+    if policy.flagsAndOffset == "Keep" then
+        ipFlagsAnon = ipFlags
+    else
+        local blackMarkerDirection, blackMarkerLength = shanonHelpers.getBlackMarkerValues(policy.flagsAndOffset)
+        ipFlagsAnon = libAnonLua.black_marker(ipFlags, blackMarkerLength, blackMarkerDirection)
+    end
 
     if policy.ttl == "Keep" then
         ipTtlAnon = ipTtl
     else
-        --TODO: Function to turn SetValue_Number into actual number
-        ipTtlAnon = ipTtl
+        ipTtlAnon = shanonHelpers.getSetValueBytes(policy.ttl,1)
     end
  
     --The protocol in use isn't anonymized
+    --TODO: Should this stay this way or not?
     ipProtocolAnon = ipProcotol
-    
+
+    --Used to check if source and destination were anonymized
+    local srcAnonymized = false
+    local dstAnonymized = false
+
+    for subnet, anonymizationMethods in pairs(policy.address) do
+        if subnet == "default" then 
+            --Skip default here. If neither address is in any of the subnets then we'll default later
+        else
+            --Check if src is in the subnet
+            if srcAnonymized == false and libAnonLua.ip_in_subnet(ipSrc, subnet) then 
+                ipSrcAnon= IPv4.applyAnonymizationMethods(ipSrc, anonymizationMethods)
+                srcAnonymized = true
+            end
+            --Check if dst is in the subnet
+            if dstAnonymized == false and libAnonLua.ip_in_subnet(ipDst, subnet) then
+                ipDstAnon = IPv4.applyAnonymizationMethods(ipDst, anonymizationMethods)
+                dstAnonymized = true
+            end
+        end
+        --End the loop if both have been anonymized
+        if srcAnonymized and dstAnonymized then 
+            break
+        end
+    end
+    --If source or destination haven't been anonymized, apply the default
+    if not srcAnonymized then
+        ipSrcAnon = IPv4.applyAnonymizationMethods(ipSrc, policy.address.default)
+    end
+
+    if not dstAnonymized then 
+        ipDstAnon = IPv4.applyAnonymizationMethods(ipDst, policy.address.default)
+    end
+
     if policy.checksum == "Keep" then 
         ipChecksumAnon = ipChecksum
     else
-        --TODO: Check how to recalculate IPv4 checksum
-        ipChecksumAnon = ipChecksum
+        --Set checksum to 0. This is unnecessary as libAnonLua does it too, but better safe than sorry
+        ipChecksumAnon = ByteArray.new("0000"):raw()
+        --Assemble a temporary header with the values we have
+        local ipv4HeaderTmp = ipVersionIhlAnon .. ipDscpEcnAnon .. ipLengthAnon .. ipIdAnon .. ipFlagsAnon .. 
+        ipTtlAnon .. ipProtocolAnon .. ipChecksumAnon .. ipSrcAnon .. ipDstAnon 
+        --Calculate che checksum based on this temporary header
+        ipChecksumAnon = libAnonLua.calculate_ipv4_checksum(ipv4HeaderTmp)
     end
-
-    --TODO: Address anonymization
-    ipSrcAnon = ipSrc
-    ipDstAnon = ipDst
-
 
     --Write to the anonymized frame here
     anonymizedFrame = ipVersionIhlAnon .. ipDscpEcnAnon .. ipLengthAnon .. ipIdAnon .. ipFlagsAnon .. 
@@ -213,6 +255,30 @@ function IPv4.validatePolicy(config)
 
 end
 
+function IPv4.applyAnonymizationMethods(ipAddr, anonymizationMethods)
+    --Apply the anonymization methods listed
+    local tmpAnon = ipAddr
+    local i = 1
+    while (anonymizationMethods[i]~=nil) do
+        if anonymizationMethods[i] == "Keep" then 
+            tmpAnon = tmpAnon
+        elseif anonymizationMethods[i] =="CryptoPAN" then 
+            local anonStatus, anonResult = libAnonLua.cryptoPAN_anonymize_ipv4(tmpAnon)
+            if anonStatus == -1 then 
+                error("Failed to run CryptoPAN algorithm!")
+            else
+                tmpAnon = anonResult
+            end
+        else    
+            --Black marker
+            local blackMarkerDirection, blackMarkerLength = shanonHelpers.getBlackMarkerValues(anonymizationMethods[i])
+            tmpAnon = libAnonLua.black_marker(tmpAnon, blackMarkerLength, blackMarkerDirection)
+        end
+        --Increment position
+        i = i + 1
+    end
+    return tmpAnon
+end
 
 --Return the module table
 return IPv4

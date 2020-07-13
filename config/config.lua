@@ -5,6 +5,9 @@ local Config = {}
 --If this is omitted a default output file name will be used
 Config.outputFile = "shanon_output.pcapng"
 
+--The key file to use for the CryptoPAN algorithm
+Config.cryptoPANKeyFile = "shanon_cryptoPAN.key"
+
 --The anonymization policy. This policy is made up of anonymization rules for the individual protocols Shanon supports
 --If a protocol is omitted a default policy will be used for that protocol
 Config.anonymizationPolicy = {}
