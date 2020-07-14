@@ -117,6 +117,68 @@ function policyValidators.verifyIPv4Subnet(subnet)
     return false
 end
 
+--Verify an IPv6 subnet
+--This isn't perfect and many mistakes may still make it through, but validating IPv6 is difficult
+function policyValidators.verifyIPv6Subnet(subnet)
+    local substrings, countSubstrings = shanonHelpers.split(subnet, "/")
+
+    --We should get an IPv6 address and a number determining the amount of bits when splitting using / as a delimiter
+    if countSubstrings~=2 then
+        return false
+    end
+
+    --The IPv6 address will be the 1st substring
+    local addr = substrings[1]
+
+    --IPv6 address portion validation code adapted from example at: https://stackoverflow.com/a/45055709
+    addr = addr:match("^([a-fA-F0-9:]+)$")
+    if addr ~= nil and #addr > 1 then
+        -- address part
+        local nc, dc = 0, false      -- chunk count, double colon
+        for chunk, colons in addr:gmatch("([^:]*)(:*)") do
+            if nc > (dc and 7 or 8) then 
+                -- max allowed chunks
+                goto verifyIPv6AddressValid
+            end    
+            if #chunk > 0 and tonumber(chunk, 16) > 65535 then
+                return false
+            end
+            if #colons > 0 then
+                -- max consecutive colons allowed: 2
+                if #colons > 2 then 
+                    return false 
+                end
+                -- double colon shall appear only once
+                if #colons == 2 and dc == true then 
+                    return false 
+                end
+                if #colons == 2 and dc == false then 
+                    dc = true 
+                end
+            end
+            nc = nc + 1      
+        end
+        goto verifyIPv6AddressValid
+    end
+
+    --If we go here that means the address is valid
+    ::verifyIPv6AddressValid::
+
+    --The number will be the 2nd substring
+    local bitBoundary = substrings[2]
+
+    bitBoundary = tonumber(bitBoundary)
+
+    if bitBoundary ~= nil then 
+        if bitBoundary>=0 and bitBoundary<=128 then
+            return true
+        end
+    end
+
+    --If we reach here it's not a valid IPv6 address
+    return false
+end
+
 --Validator that runs multiple validators on the values of a table with keys that also need validation
 --If any single key is invalid, return false
 function policyValidators.keyValidatedTableMultiValidatorFactory(keyValidationFunction, tableHasDefault, ...)

@@ -125,13 +125,15 @@ function Tap_Frame.packet(pinfo, tvb, tapinfo)
             --TODO: Remove anonymizerOutput completely when all functions are rewritten to replace the entire frame
             anonymizerOutput = ""
         elseif protocolList[currentPosition] == "ipv6" then
-            status, anonymizerOutput = pcall(ipv6.anonymize, tvb, protocolList, anonymizationPolicy)
+            status, anonymizedFrame = pcall(ipv6.anonymize, tvb, protocolList, currentPosition, anonymizedFrame, config)
             if status == false then
                 --An error was thrown. anonymizerOutput has the error info
                 shanonHelpers.writeLog(shanonHelpers.logError, "Error in frame: " .. frameNumber.value .. ". " .. "IPv6 anonymizer produced the following error: " .. anonymizerOutput)
                 --Set the output to an empty string so nothing is added to the frame
-                anonymizerOutput = ""
+                anonymizedFrame = ""
             end
+            --TODO: Remove anonymizerOutput completely when all functions are rewritten to replace the entire frame
+            anonymizerOutput = ""
         elseif protocolList[currentPosition]:find("ipv6.") then
             --Nothing needs to be done for this
             --The "ipv6." prefix is used to mark ipv6 extension headers, such as "ipv6.dstopts" and should be skipped

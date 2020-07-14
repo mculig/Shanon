@@ -62,7 +62,7 @@ Config.anonymizationPolicy.ipv4 = {
         --The DSCP and ECN fields share a single byte
         --Options:
         --Keep: Keep the field as is
-        --BlackMarker: Apply a BlackMarker to the field
+        --BlackMarker: See the BlackMarker syntax example in the ethernet policy
         dscpEcn = "BlackMarker_MSB_8",
         --The length of the payload
         --Options:
@@ -100,9 +100,85 @@ Config.anonymizationPolicy.ipv4 = {
         --CryptoPAN: Use the CryptoPAN algorithm to anonymize IPv4 addresses
         address = {
             ["192.168.1.0/24"] = {"Keep"},
-            default = {"BlackMarker_MSB_8", "CryptoPAN"}
+            default = {"CryptoPAN"}
         }
     }
+}
+
+--The anonymization policy for IPv6
+Config.anonymizationPolicy.ipv6 = {
+    --Different anonymization rules can be specified for different subnets
+    --These behave the same way rules for IPv4 subnets behave
+    subnets = {
+
+    },
+    --The default rule is applied to each packet that doesn't match a particular subnet
+    --This is the same as with IPv4
+    default = {
+        --Traffic class
+        --Options:
+        --Keep: Keep the field as is
+        --BlackMarke: See the BlackMarker syntax example in the ethernet policy
+        trafficClass = "BlackMarker_MSB_8",
+        --Flow Label
+        --Options:
+        --Keep: Keep the field as is
+        --BlackMarker: See the BlackMarker syntax example in the ethernet policy
+        flowLabel = "BlackMarker_MSB_20",
+        --IPv6 payload length
+        --Options:
+        --Keep: Keep the field as is
+        --Recalculate: Calculate new length
+        length = "Recalculate",
+        --IPv6 Hop Limit (TTL)
+        --Options:
+        --Keep: Keep value as is
+        --SetValue_N: Set the TTL field to a specific number N
+        hopLimit = "SetValue_64",
+        options = {
+            hopByHop = {
+                --Whether to keep or discard this option
+                --Options: True/False
+                keep = "True",
+                --Option payload
+                --Options:
+                --Zero: Set the payload to all zeroes, but preserve length
+                --Minimum: Set the payload to a minimum-length payload
+                --Keep: Keep the payload as it was, length is preserved
+                payload = "Zero"
+            },
+            routing = {
+                --Options same as for hopByHop
+                keep = "True",
+                payload = "Zero"
+            },
+            fragment = {
+                --Fragment offset
+                --Options:
+                --Keep: Keep the fragment offset unchanged
+                --BlackMarker: See the BlackMarker syntax example in the ethernet policy
+                fragmentOffset = "BlackMarker_MSB_13",
+                --Identification field
+                --Options:
+                --Keep: Keep the identification field unchanged
+                --BlackMarker: See the BlackMarker syntax example in the ethernet policy
+                identification = "BlackMarker_MSB_32"
+            },
+            destinationOptions = {
+                --Options same as for hopByHop
+                keep = "True",
+                payload = "Zero"
+            }
+        },
+        --IPv6 Addresses
+        --The rules can be specified in the same way as for IPv4 addresses. See the IPv4 policy for details
+        --IPv6 validation is complex and as such some invalid addresses can still make it through. Please take extra care that subnets are properly defined
+        address = {
+            ["fe80::/10"] = {"Keep"},
+            default = {"CryptoPAN"}
+        }
+    }
+
 }
 
 --Required. Return the variable created at the start. This must be the last line

@@ -3,6 +3,7 @@
 --Our libraries
 local libAnonLua = require "libAnonLua"
 local shanonHelpers = require "shanonHelpers"
+local shanonPolicyValidators = require "shanonPolicyValidators"
 
 --Module table
 local IPv6={}
@@ -53,13 +54,64 @@ IPv6.EXTHDR.RT.Type = Field.new("ipv6.routing.type")
 IPv6.EXTHDR.RT.SegmentsLeft = Field.new("ipv6.routing.segleft")
 --Rest of the header depends on different routing header types and will be treated as data
 
+--The default anonymization policy for this protocol
+IPv6.defaultPolicy = 
+{
+    default = {
+        trafficClass = "BlackMarker_MSB_8",
+        flowLabel = "BlackMarker_MSB_20",
+        length = "Recalculate",
+        hopLimit = "SetValue_64",
+        options = {
+            hopByHop = {
+                keep = "True",
+                payload = "Zero"
+            },
+            routing = {
+                keep = "True",
+                payload = "Zero"
+            },
+            fragment = {
+                fragmentOffset = "BlackMarker_MSB_13",
+                identification = "BlackMarker_MSB_32"
+            },
+            destinationOptions = {
+                keep = "True",
+                payload = "Zero"
+            }
+        },
+        address = {
+            default = {"CryptoPAN"}
+        }
+    }
+}
 
-function IPv6.anonymize(tvb, protocolList, anonymizationPolicy)
+--Policy validation functions for IPv6 policies
+IPv6.policyValidation = 
+{
+    trafficClass = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep"}, shanonPolicyValidators.validateBlackMarker, nil), 
+    flowLabel = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep"}, shanonPolicyValidators.validateBlackMarker, nil),
+    length = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep", "Recalculate"}),
+    hopLimit = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep"}, shanonPolicyValidators.validateSetValue, nil),
+    --TODO: Validate options table
+    address = shanonPolicyValidators.keyValidatedTableMultiValidatorFactory(shanonPolicyValidators.verifyIPv6Subnet, true, shanonPolicyValidators.isPossibleOption, {"Keep", "CryptoPAN"}, shanonPolicyValidators.validateBlackMarker, nil)
+}
+
+--Is the anonymization policy valid. This check need only be done once
+IPv6.policyIsValid = false
+
+function IPv6.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, config)
 
     --Create a local relativeStackPosition and decrement the main
     --That way if any weird behaviour occurs the rest of execution isn't neccessarily compromised
     local relativeStackPosition = IPv6.relativeStackPosition
     IPv6.relativeStackPosition = IPv6.relativeStackPosition - 1
+
+    --If the policy is invalid (or on 1st run) we validate the policy
+    if IPv6.policyIsValid == false then 
+        IPv6.validatePolicy(config)
+        IPv6.policyIsValid = true
+    end
 
     --Get fields
     local versionClassLabel= shanonHelpers.getRaw(tvb, IPv6.version_class_label, relativeStackPosition)
@@ -78,6 +130,9 @@ function IPv6.anonymize(tvb, protocolList, anonymizationPolicy)
     local dstAnon
 
     --Anonymize stuff here
+
+    --TODO: Check if anonymizedFrame is empty and apply a minimum payload
+
     versionClassLabelAnon = versionClassLabel
     payloadLengthAnon = payloadLength
     nextHeaderAnon = nextHeader
@@ -100,7 +155,7 @@ function IPv6.anonymize(tvb, protocolList, anonymizationPolicy)
     end
 
     --Return the anonymization result
-    return versionClassLabelAnon .. payloadLengthAnon .. nextHeaderAnon .. hopLimitAnon .. srcAnon .. dstAnon .. extensionHeaderData
+    return versionClassLabelAnon .. payloadLengthAnon .. nextHeaderAnon .. hopLimitAnon .. srcAnon .. dstAnon .. extensionHeaderData .. anonymizedFrame
 end
 
 function IPv6.handleExtensionHeaders(tvb, relativeStackPosition)
@@ -348,6 +403,35 @@ function IPv6.handleExtensionHeaders(tvb, relativeStackPosition)
         -- If the NextHeadersLength is 0 we have processed no options and we return nothing
         return nil, nil
     end
+end
+
+function IPv6.validatePolicy(config)
+    --Check if the config has an anonymizationPolicy
+    shanonPolicyValidators.verifyPolicyExists(config)
+
+    
+
+    --Verify the default policy exists and its contents
+    if config.anonymizationPolicy.ipv6 == nil then
+        shanonHelpers.warnMissingPolicy("IPv6")
+        config.anonymizationPolicy.ipv6 = IPv6.defaultPolicy
+    else
+        if config.anonymizationPolicy.ipv6.default == nil then
+            shanonHelpers.writeLog(shanonHelpers.logWarn, "Default anonymization policy for unspecified IPv6 subnets not found. Using built-in default!")
+            config.anonymizationPolicy.ipv6.defaul = IPv6.defaultPolicy.default
+        end
+        --Iterate through validators to validate policy elements
+        for option, validator in pairs(IPv6.policyValidation) do
+            if not validator(config.anonymizationPolicy.ipv6.default[option]) then
+                shanonHelpers.warnUsingDefaultOption("IPv6", option, IPv6.defaultPolicy.default[option])
+                config.anonymizationPolicy.ipv6.default[option] = IPv6.defaultPolicy.default[option]
+            end
+        end
+    end
+
+    --Verify each of the individual subnet policies and specified subnets are valid
+    --TODO: All of this
+
 end
 
 --Return the module table

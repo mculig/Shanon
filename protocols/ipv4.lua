@@ -215,7 +215,7 @@ function IPv4.validatePolicy(config)
         config.anonymizationPolicy.ipv4 = IPv4.defaultPolicy
     else
         if config.anonymizationPolicy.ipv4.default == nil then
-            shanonHelpers.writeLog(shanonHelpers.logWarn, "Default anonymization policy for unspecified IPv4 subnets not found. Using default!")
+            shanonHelpers.writeLog(shanonHelpers.logWarn, "Default anonymization policy for unspecified IPv4 subnets not found. Using built-in default!")
             config.anonymizationPolicy.ipv4.default = IPv4.defaultPolicy.default
         end
         --Since the options in the config are named the same as the validators we can iterate through the validators and run them on the
