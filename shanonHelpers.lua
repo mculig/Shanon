@@ -220,7 +220,7 @@ function M.warnUsingDefaultOption(protocolName, fieldName, defaultValue)
 	if type(defaultValue) ~= "string" then 
 		defaultValue = "This default is a table and can not be printed neatly. Please look it up in the documentation!"
 	end
-		M.writeLog(M.logWarn, "Invalid or missing anonymization option for " .. protocolName .. " " .. fieldName .."! Using default: " .. defaultValue) 
+		M.writeLog(M.logWarn, "Invalid or missing anonymization option \"" .. fieldName .. "\" for " .. protocolName .. "! Using default: " .. defaultValue) 
 end
 
 --Helper to generate a zero payload of a specific length

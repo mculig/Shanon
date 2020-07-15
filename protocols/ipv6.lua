@@ -62,38 +62,34 @@ IPv6.defaultPolicy =
         flowLabel = "BlackMarker_MSB_20",
         length = "Recalculate",
         hopLimit = "SetValue_64",
-        options = {
-            hopByHop = {
-                keep = "True",
-                payload = "Zero"
-            },
-            routing = {
-                keep = "True",
-                payload = "Zero"
-            },
-            fragment = {
-                fragmentOffset = "BlackMarker_MSB_13",
-                identification = "BlackMarker_MSB_32"
-            },
-            destinationOptions = {
-                keep = "True",
-                payload = "Zero"
-            }
-        },
+        headers_hopByHop_keep = "True",
+        headers_hopByHop_payload = "Zero",
+        headers_routing_keep = "True",
+        headers_routing_payload = "Zero",
+        headers_fragment_fragmentOffset = "BlackMarker_MSB_13",
+        headers_fragment_identification = "BlackMarker_MSB_32",
+        headers_dstOpt_keep = "True",
+        headers_dstOpt_payload = "Zero",
         address = {
             default = {"CryptoPAN"}
         }
     }
 }
 
---Policy validation functions for IPv6 policies
 IPv6.policyValidation = 
 {
     trafficClass = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep"}, shanonPolicyValidators.validateBlackMarker, nil), 
     flowLabel = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep"}, shanonPolicyValidators.validateBlackMarker, nil),
     length = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep", "Recalculate"}),
     hopLimit = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep"}, shanonPolicyValidators.validateSetValue, nil),
-    --TODO: Validate options table
+    headers_hopByHop_keep = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"True", "False"}),
+    headers_hopByHop_payload = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Zero", "Minimum", "Keep"}),
+    headers_routing_keep = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"True", "False"}),
+    headers_routing_payload = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Zero", "Minimum", "Keep"}),
+    headers_fragment_fragmentOffset = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep"}, shanonPolicyValidators.validateBlackMarker, nil),
+    headers_fragment_identification = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep"}, shanonPolicyValidators.validateBlackMarker, nil),
+    headers_dstOpt_keep = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"True", "False"}),
+    headers_dstOpt_payload = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Zero", "Minimum", "Keep"}),
     address = shanonPolicyValidators.keyValidatedTableMultiValidatorFactory(shanonPolicyValidators.verifyIPv6Subnet, true, shanonPolicyValidators.isPossibleOption, {"Keep", "CryptoPAN"}, shanonPolicyValidators.validateBlackMarker, nil)
 }
 
@@ -409,8 +405,6 @@ function IPv6.validatePolicy(config)
     --Check if the config has an anonymizationPolicy
     shanonPolicyValidators.verifyPolicyExists(config)
 
-    
-
     --Verify the default policy exists and its contents
     if config.anonymizationPolicy.ipv6 == nil then
         shanonHelpers.warnMissingPolicy("IPv6")
@@ -418,7 +412,7 @@ function IPv6.validatePolicy(config)
     else
         if config.anonymizationPolicy.ipv6.default == nil then
             shanonHelpers.writeLog(shanonHelpers.logWarn, "Default anonymization policy for unspecified IPv6 subnets not found. Using built-in default!")
-            config.anonymizationPolicy.ipv6.defaul = IPv6.defaultPolicy.default
+            config.anonymizationPolicy.ipv6.default = IPv6.defaultPolicy.default
         end
         --Iterate through validators to validate policy elements
         for option, validator in pairs(IPv6.policyValidation) do
@@ -430,7 +424,33 @@ function IPv6.validatePolicy(config)
     end
 
     --Verify each of the individual subnet policies and specified subnets are valid
-    --TODO: All of this
+    if config.anonymizationPolicy.ipv6.subnets ~= nil then 
+        for subnet, policy in pairs(config.anonymizationPolicy.ipv6.subnets) do
+            if next(policy) == nil then 
+                shanonHelpers.writeLog(shanonHelpers.logWarn, "Invalid subnet: " .. subnet .. " in IPv6 subnet config. Policy cannot be empty. Default settings will be applied to this subnet")
+                config.anonymizationPolicy.ipv6.subnets[subnet] = nil
+                goto continueSubnetIPv6
+            end
+            if not shanonPolicyValidators.verifyIPv6Subnet(subnet) then 
+                shanonHelpers.writeLog(shanonHelpers.logWarn, "Invalid subnet: " .. subnet .. " in IPv6 subnet config. Default settings will be applied to this subnet")
+                config.anonymizationPolicy.ipv6.subnets[subnet] = nil
+                goto continueSubnetIPv6
+            else
+                for option, validator in pairs(IPv6.policyValidation) do
+                    if policy[option] == nil then
+                        --If not specified, silently replace
+                        policy[option] = config.anonymizationPolicy.ipv6.default[option]
+                    elseif not validator(policy[option]) then
+                        --If specified, but invalid, warn
+                        shanonHelpers.warnUsingDefaultOption("IPv6 subnet \"" .. subnet .. "\": ", option, config.anonymizationPolicy.ipv6.default[option])
+                        policy[option] = config.anonymizationPolicy.ipv6.default[option]
+                    end
+                end
+            end
+            ::continueSubnetIPv6::
+        end
+
+    end
 
 end
 

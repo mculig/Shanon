@@ -234,23 +234,29 @@ function IPv4.validatePolicy(config)
         for subnet, policy in pairs(config.anonymizationPolicy.ipv4.subnets) do
             if next(policy) == nil then
                 shanonHelpers.writeLog(shanonHelpers.logWarn, "Invalid subnet: " .. subnet .. " in IPv4 subnet config. Policy cannot be empty. Default settings will be applied to this subnet")
+                config.anonymizationPolicy.ipv4.subnets[subnet] = nil
+                --Lua has no continue...so annoying
+                goto continueSubnetIPv4
             end
             if not shanonPolicyValidators.verifyIPv4Subnet(subnet) then
                 shanonHelpers.writeLog(shanonHelpers.logWarn, "Invalid subnet: " .. subnet .. " in IPv4 subnet config. Default settings will be applied to this subnet")
-                policy[subnet] = nil
+                config.anonymizationPolicy.ipv4.subnets[subnet] = nil
                 --Lua has no continue...so annoying
-                goto continueSubnet
+                goto continueSubnetIPv4
             else
                 --Validate subnet settings here and copy from the config default (not the IPv4 defaults used before) if missing
                 --This won't be logged as subnet settings are expected to differ partially from the default IPv4 settings
                 --and it is valid for them not to have each option explicitly stated
                 for option, validator in pairs(IPv4.policyValidation) do 
-                    if not validator(policy[option]) then 
+                    if policy[option] == nil then 
+                        policy[option] = config.anonymizationPolicy.ipv4.default[option]                     
+                    elseif not validator(policy[option]) then 
+                        shanonHelpers.warnUsingDefaultOption("IPv4 subnet \"" .. subnet .. "\": ", option, config.anonymizationPolicy.ipv4.default[option])
                         policy[option] = config.anonymizationPolicy.ipv4.default[option]
                     end
                 end
             end
-            ::continueSubnet::
+            ::continueSubnetIPv4::
         end
     end
 

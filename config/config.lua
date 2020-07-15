@@ -110,7 +110,9 @@ Config.anonymizationPolicy.ipv6 = {
     --Different anonymization rules can be specified for different subnets
     --These behave the same way rules for IPv4 subnets behave
     subnets = {
-
+        ["fe80::/10"] = {
+            trafficClass = "BlackMarker_MSB_8"
+        }
     },
     --The default rule is applied to each packet that doesn't match a particular subnet
     --This is the same as with IPv4
@@ -135,41 +137,35 @@ Config.anonymizationPolicy.ipv6 = {
         --Keep: Keep value as is
         --SetValue_N: Set the TTL field to a specific number N
         hopLimit = "SetValue_64",
-        options = {
-            hopByHop = {
-                --Whether to keep or discard this option
-                --Options: True/False
-                keep = "True",
-                --Option payload
-                --Options:
-                --Zero: Set the payload to all zeroes, but preserve length
-                --Minimum: Set the payload to a minimum-length payload
-                --Keep: Keep the payload as it was, length is preserved
-                payload = "Zero"
-            },
-            routing = {
-                --Options same as for hopByHop
-                keep = "True",
-                payload = "Zero"
-            },
-            fragment = {
-                --Fragment offset
-                --Options:
-                --Keep: Keep the fragment offset unchanged
-                --BlackMarker: See the BlackMarker syntax example in the ethernet policy
-                fragmentOffset = "BlackMarker_MSB_13",
-                --Identification field
-                --Options:
-                --Keep: Keep the identification field unchanged
-                --BlackMarker: See the BlackMarker syntax example in the ethernet policy
-                identification = "BlackMarker_MSB_32"
-            },
-            destinationOptions = {
-                --Options same as for hopByHop
-                keep = "True",
-                payload = "Zero"
-            }
-        },
+        --Hop by hop extension headers
+        --Whether to keep or discard this option
+        --Options: True/False
+        headers_hopByHop_keep = "True",
+        --Option payload
+        --Options:
+        --Zero: Set the payload to all zeroes, but preserve length
+        --Minimum: Set the payload to a minimum-length payload
+        --Keep: Keep the payload as it was, length is preserved
+        headers_hopByHop_payload = "Zero",
+        --Routing extension headers
+        --Same options as hop by hop
+        headers_routing_keep = "True",
+        headers_routing_payload = "Zero",
+        --Fragmentation headers
+        --Fragment offset
+        --Options:
+        --Keep: Keep the fragment offset unchanged
+        --BlackMarker: See the BlackMarker syntax example in the ethernet policy
+        headers_fragment_fragmentOffset = "BlackMarker_MSB_13",
+        --Identification field
+        --Options:
+        --Keep: Keep the identification field unchanged
+        --BlackMarker: See the BlackMarker syntax example in the ethernet policy
+        headers_fragment_identification = "BlackMarker_MSB_32",
+        --Destination Options headers
+        --Same options as hop by hop
+        headers_dstOpt_keep = "True",
+        headers_dstOpt_payload = "Zero",
         --IPv6 Addresses
         --The rules can be specified in the same way as for IPv4 addresses. See the IPv4 policy for details
         --IPv6 validation is complex and as such some invalid addresses can still make it through. Please take extra care that subnets are properly defined
