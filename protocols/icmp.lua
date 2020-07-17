@@ -7,6 +7,10 @@ local shanonHelpers = require "shanonHelpers"
 --Module table
 local ICMP={}
 
+--The filter name is used when looking for instances of this protocol
+ICMP.filterName = "icmp"
+
+
 --Relative stack position is used to determine which of many possible instances of this protocol is being processed
 ICMP.relativeStackPosition = 1
 
@@ -25,7 +29,7 @@ ICMP.originateTimestamp = Field.new("icmp.originate_timestamp")
 ICMP.receiveTimestamp = Field.new("icmp.receive_timestamp")
 ICMP.transmitTimestamp = Field.new("icmp.transmit_timestamp")
 
-function ICMP.anonymize(tvb, protocolList, anonymizationPolicy)
+function ICMP.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, config)
 
     --Create a local relativeStackPosition and decrement the main
     --That way if any weird behaviour occurs the rest of execution isn't neccessarily compromised

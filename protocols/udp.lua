@@ -7,6 +7,9 @@ local shanonHelpers = require "shanonHelpers"
 --Module table
 local UDP={}
 
+--The filter name is used when looking for instances of this protocol
+UDP.filterName = "udp"
+
 --Relative stack position is used to determine which of many possible instances of this protocol is being processed
 UDP.relativeStackPosition = 1
 
@@ -15,7 +18,7 @@ UDP.dstport = Field.new("udp.dstport")
 UDP.length = Field.new("udp.length")
 UDP.checksum = Field.new("udp.checksum")
 
-function UDP.anonymize(tvb, protocolList, anonymizationPolicy)
+function UDP.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, config)
 
     --Create a local relativeStackPosition and decrement the main
     --That way if any weird behaviour occurs the rest of execution isn't neccessarily compromised

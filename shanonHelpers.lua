@@ -223,6 +223,27 @@ function M.warnUsingDefaultOption(protocolName, fieldName, defaultValue)
 		M.writeLog(M.logWarn, "Invalid or missing anonymization option \"" .. fieldName .. "\" for " .. protocolName .. "! Using default: " .. defaultValue) 
 end
 
+--Function to end execution and report an error.
+function M.crashWithError(logMessage, printMessage)
+	M.writeLog(M.logError, logMessage)
+	if printMessage ~= nil then 
+		print(printMessage)
+	else 
+		print(logMessage)
+	end
+	os.exit(-1)
+end
+
+--Function to end execution and report missing policy items
+function M.crashMissingOption(protocolName, fieldName)
+	M.crashWithError("Invalid or missing anonymization policy option \"" .. fieldName .. "\" for protocol \"" .. protocolName .. ".\"")
+end
+
+--Function to end execution and report missing entire policy
+function M.crashMissingPolicy(protocolName)
+	M.crashWithError("Missing policy: \"" .. protocolName .. "\"", "The anonymization policy for the protocol: \"" .. protocolName .. "\" was not found in the config file.")
+end
+
 --Helper to generate a zero payload of a specific length
 --Naive algorithm, but we don't predict having to do this for megabytes of infomation
 function M.generateZeroPayload(lengthBytes)
@@ -293,6 +314,7 @@ function M.getSetValueBytes(setValueString, byteCount)
 	--Just a precaution. This should never happen because we validate the SetValue options with a lua expression when validating the config
 	if numberValue == nil then
 		numberValue = 0
+		--TODO: Crash for this
 		M.writeLog(M.logError, "Error in function getSetValueBytes in shanonHelpers. Function tonumber returned nil when converting string to number. This is a bug in Shanon itself.")
 	end
 
@@ -309,6 +331,7 @@ function M.getSetValueBytes(setValueString, byteCount)
 
 	--Check if we ended up with enough bytes
 	if numberValueBytes:len() > byteCount then 
+		--TODO: Crash for this
 		error("Error converting SetValue option to byte array for insertion into protocol field. Conversion of numerical value produced " .. numberValueBytes:len() .. " bytes, but " .. byteCount .. "expected.")
 	else 
 		local difference = byteCount - numberValueBytes:len()

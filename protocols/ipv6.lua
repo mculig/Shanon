@@ -8,6 +8,18 @@ local shanonPolicyValidators = require "shanonPolicyValidators"
 --Module table
 local IPv6={}
 
+--The filter name is used when looking for instances of this protocol
+IPv6.filterName = "ipv6"
+
+--A function to test if this is a faux protocol meant to indicate options of this protocol
+function IPv6.fauxProtocols(protocolName)
+    if protocolName:find("ipv6.") then
+        return true
+    else
+        return false
+    end
+end
+
 --Relative stack position is used to determine which of many possible instances of this protocol is being processed
 IPv6.relativeStackPosition = 1
 
@@ -54,32 +66,11 @@ IPv6.EXTHDR.RT.Type = Field.new("ipv6.routing.type")
 IPv6.EXTHDR.RT.SegmentsLeft = Field.new("ipv6.routing.segleft")
 --Rest of the header depends on different routing header types and will be treated as data
 
---The default anonymization policy for this protocol
-IPv6.defaultPolicy = 
-{
-    default = {
-        trafficClass = "BlackMarker_MSB_8",
-        flowLabel = "BlackMarker_MSB_20",
-        length = "Recalculate",
-        hopLimit = "SetValue_64",
-        headers_hopByHop_keep = "True",
-        headers_hopByHop_payload = "Zero",
-        headers_routing_keep = "True",
-        headers_routing_payload = "Zero",
-        headers_fragment_fragmentOffset = "BlackMarker_MSB_13",
-        headers_fragment_identification = "BlackMarker_MSB_32",
-        headers_dstOpt_keep = "True",
-        headers_dstOpt_payload = "Zero",
-        address = {
-            default = {"CryptoPAN"}
-        }
-    }
-}
-
+--The policy validation rules for IPv6
 IPv6.policyValidation = 
 {
-    trafficClass = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep"}, shanonPolicyValidators.validateBlackMarker, nil), 
-    flowLabel = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep"}, shanonPolicyValidators.validateBlackMarker, nil),
+    trafficClass = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep", "Zero"}), 
+    flowLabel = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep", "Zero"}),
     length = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep", "Recalculate"}),
     hopLimit = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep"}, shanonPolicyValidators.validateSetValue, nil),
     headers_hopByHop_keep = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"True", "False"}),
@@ -129,13 +120,87 @@ function IPv6.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, con
 
     --TODO: Check if anonymizedFrame is empty and apply a minimum payload
 
-    versionClassLabelAnon = versionClassLabel
-    payloadLengthAnon = payloadLength
-    nextHeaderAnon = nextHeader
-    hopLimitAnon = hopLimit
-    srcAnon = src
-    dstAnon = dst
+    local policy
 
+    --Check if we have a policy for subnets and if our source or destination addresses match and of the subnets specified in the policy
+    if config.anonymizationPolicy.ipv6.subnets ~= nil then
+        for subnet, subnetPolicy in pairs(config.anonymizationPolicy.ipv6.subnets) do
+            if libAnonLua.ip_in_subnet(src, subnet) or libAnonLua.ip_in_subnet(dst, subnet) then
+                policy = subnetPolicy
+                break
+            end
+        end
+    end
+    
+    --If we didn't find a specific policy for this subnet, use the default
+    if policy == nil then 
+        policy = config.anonymizationPolicy.ipv6.default
+    end
+
+    if policy.trafficClass == "Keep" and policy.flowLabel == "Keep" then
+        local mask = ByteArray.new("FFFFFFFF"):raw()
+        versionClassLabelAnon = libAnonLua.apply_mask(versionClassLabel, mask)
+    elseif policy.trafficClass == "Keep" and policy.flowLabel == "Zero" then
+        local mask = ByteArray.new("FFF00000"):raw()
+        versionClassLabelAnon = libAnonLua.apply_mask(versionClassLabel, mask)
+    elseif policy.trafficClass == "Zero" and policy.flowLabel == "Keep" then
+        local mask = ByteArray.new("F00FFFFF"):raw()
+        versionClassLabelAnon = libAnonLua.apply_mask(versionClassLabel, mask)
+    else
+        local mask = ByteArray.new("F0000000"):raw()
+        versionClassLabelAnon = libAnonLua.apply_mask(versionClassLabel, mask)
+    end
+
+    --TODO: Set 1st 4 bits of versionClassLabelAnon to 6 for IPv6
+
+
+    --TODO: Recalculate payload length at end
+    payloadLengthAnon = payloadLength
+    
+    --Next header stays the same (or is recalculated by the options below)
+    --TODO: Explore parsing the protocol chain to find the higher layer protocol
+    nextHeaderAnon = nextHeader
+
+    if policy.hopLimit == "Keep" then
+        hopLimitAnon = hopLimit
+    else
+        hopLimitAnon = shanonHelpers.getSetValueBytes(policy.hopLimit, 1)
+    end
+    
+    --Used to check if source and destination were anonymized
+    local srcAnonymized = false
+    local dstAnonymized = false
+
+    --Check if our addresses match any of the specified subnets and anonymize accordigly
+    for subnet, anonymizationMethods in pairs(policy.address) do
+        if subnet == "default" then
+            --Skip default here. If neither address is in any of the subnets then we'll default later
+        else
+            --Check if src is in the subnet
+            if srcAnonymized == false and libAnonLua.ip_in_subnet(src, subnet) then 
+                srcAnon = IPv6.applyAddressAnonymizationMethods(src, anonymizationMethods)
+                srcAnonymized = true
+            end
+            --Check if dst is in the subnet
+            if dstAnonymized == false and libAnonLua.ip_in_subnet(dst, subnet) then
+                dstAnon = IPv6.applyAddressAnonymizationMethods(dst, anonymizationMethods)
+                dstAnonymized = true
+            end
+            --End the loop if both have been anonymized
+            if srcAnonymized and dstAnonymized then 
+                break
+            end
+        end
+    end
+    --If source or destination haven't been anonymized, apply the default
+    if not srcAnonymized then 
+        srcAnon = IPv6.applyAddressAnonymizationMethods(src, policy.address.default)
+    end
+
+    if not dstAnonymized then 
+        dstAnon = IPv6.applyAddressAnonymizationMethods(dst, policy.address.default)
+    end
+    
     --Handle Extension Headers here
     local nextHeaderValue
     local extensionHeaderData
@@ -407,18 +472,17 @@ function IPv6.validatePolicy(config)
 
     --Verify the default policy exists and its contents
     if config.anonymizationPolicy.ipv6 == nil then
-        shanonHelpers.warnMissingPolicy("IPv6")
+        shanonHelpers.crashMissingPolicy("IPv6")
         config.anonymizationPolicy.ipv6 = IPv6.defaultPolicy
     else
         if config.anonymizationPolicy.ipv6.default == nil then
-            shanonHelpers.writeLog(shanonHelpers.logWarn, "Default anonymization policy for unspecified IPv6 subnets not found. Using built-in default!")
+            shanonHelpers.crashWithError("Default anonymization policy for unspecified IPv6 subnets not found.")
             config.anonymizationPolicy.ipv6.default = IPv6.defaultPolicy.default
         end
         --Iterate through validators to validate policy elements
         for option, validator in pairs(IPv6.policyValidation) do
             if not validator(config.anonymizationPolicy.ipv6.default[option]) then
-                shanonHelpers.warnUsingDefaultOption("IPv6", option, IPv6.defaultPolicy.default[option])
-                config.anonymizationPolicy.ipv6.default[option] = IPv6.defaultPolicy.default[option]
+                shanonHelpers.crashMissingPolicy("IPv6", option)
             end
         end
     end
@@ -427,23 +491,18 @@ function IPv6.validatePolicy(config)
     if config.anonymizationPolicy.ipv6.subnets ~= nil then 
         for subnet, policy in pairs(config.anonymizationPolicy.ipv6.subnets) do
             if next(policy) == nil then 
-                shanonHelpers.writeLog(shanonHelpers.logWarn, "Invalid subnet: " .. subnet .. " in IPv6 subnet config. Policy cannot be empty. Default settings will be applied to this subnet")
-                config.anonymizationPolicy.ipv6.subnets[subnet] = nil
-                goto continueSubnetIPv6
+                shanonHelpers.crashWithError("Invalid subnet: " .. subnet .. " in IPv6 subnet config. Policy cannot be empty.")
             end
             if not shanonPolicyValidators.verifyIPv6Subnet(subnet) then 
-                shanonHelpers.writeLog(shanonHelpers.logWarn, "Invalid subnet: " .. subnet .. " in IPv6 subnet config. Default settings will be applied to this subnet")
-                config.anonymizationPolicy.ipv6.subnets[subnet] = nil
-                goto continueSubnetIPv6
+                shanonHelpers.crashWithError("Invalid subnet: " .. subnet .. " in IPv6 subnet config.")
             else
                 for option, validator in pairs(IPv6.policyValidation) do
                     if policy[option] == nil then
                         --If not specified, silently replace
                         policy[option] = config.anonymizationPolicy.ipv6.default[option]
                     elseif not validator(policy[option]) then
-                        --If specified, but invalid, warn
-                        shanonHelpers.warnUsingDefaultOption("IPv6 subnet \"" .. subnet .. "\": ", option, config.anonymizationPolicy.ipv6.default[option])
-                        policy[option] = config.anonymizationPolicy.ipv6.default[option]
+                        --If specified, but invalid, crash
+                        shanonHelpers.crashMissingOption("IPv6 subnet \"" .. subnet .. "\": ", option)
                     end
                 end
             end
@@ -452,6 +511,30 @@ function IPv6.validatePolicy(config)
 
     end
 
+end
+
+function IPv6.applyAddressAnonymizationMethods(ipv6Addr, anonymizationMethods)
+    local tmpAnon = ipv6Addr
+    local i = 1
+    while anonymizationMethods[i] ~= nil do
+        if anonymizationMethods[i] == "Keep" then 
+            tmpAnon = tmpAnon
+        elseif anonymizationMethods[i] == "CryptoPAN" then
+            local anonStatus, anonResult = libAnonLua.cryptoPAN_anonymize_ipv6(tmpAnon)
+            if anonStatus == -1 then 
+                shanonHelpers.crashWithError("Failed to run CryptoPAN algorithm during IPv6 anonymization!")
+            else
+                tmpAnon = anonResult
+            end
+        else
+            --Black marker
+            local blackMarkerDirection, blackMarkerLength = shanonHelpers.getBlackMarkerValues(anonymizationMethods[i])
+            tmpAnon = libAnonLua.black_marker(tmpAnon, blackMarkerLength, blackMarkerDirection)
+        end
+        --Increment position
+        i = i + 1
+    end
+    return tmpAnon
 end
 
 --Return the module table

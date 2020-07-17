@@ -7,8 +7,11 @@ local shanonHelpers = require "shanonHelpers"
 --Module table
 local TCP={}
 
+--The filter name is used when looking for instances of this protocol
+TCP.filterName = "tcp"
+
 --Relative stack position is used to determine which of many possible instances of this protocol is being processed
-relativeStackPosition = 1
+TCP.relativeStackPosition = 1
 
 TCP.srcport = Field.new("tcp.srcport")
 TCP.dstport = Field.new("tcp.dstport")
@@ -61,7 +64,7 @@ TCP.OPT.SACK.BlockCount = 1 --Count of SACK blocks in the SACK
 TCP.OPT.SACK.LE = Field.new("tcp.options.sack_le") --Left edge of a SACK block
 TCP.OPT.SACK.RE = Field.new("tcp.options.sack_re") --Right edge of a SACK block
 
-function TCP.anonymize(tvb, protocolList, currentPosition, previousLayerHeader, anonymizationPolicy)
+function TCP.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, config)
    
     
     --Create a local relativeStackPosition and decrement the main

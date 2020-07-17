@@ -9,6 +9,10 @@ local ipv4 = require "protocols.ipv4"
 --Module table
 local ARP={}
 
+--The filter name is used when looking for instances of this protocol
+ARP.filterName = "arp"
+
+
 --Relative stack position is used to determine which of many possible instances of this protocol is being processed
 ARP.relativeStackPosition = 1
 

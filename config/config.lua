@@ -59,11 +59,16 @@ Config.anonymizationPolicy.ipv4 = {
     --Any option not specified in a subnet's anonymization policy will be taken from this default
     --Any option not in this default will be taken from a hardcoded default policy
     default = {
-        --The DSCP and ECN fields share a single byte
+        --The DSCP field
         --Options:
         --Keep: Keep the field as is
-        --BlackMarker: See the BlackMarker syntax example in the ethernet policy
-        dscpEcn = "BlackMarker_MSB_8",
+        --Zero: Set this field to zeroes
+        dscp = "Zero",
+        --The ECN field
+        --Options:
+        --Keep: Keep the field as is
+        --Zero: Set this field to zeroes
+        ecn = "Zero",
         --The length of the payload
         --Options:
         --Keep: Keep the field as is
@@ -120,13 +125,13 @@ Config.anonymizationPolicy.ipv6 = {
         --Traffic class
         --Options:
         --Keep: Keep the field as is
-        --BlackMarke: See the BlackMarker syntax example in the ethernet policy
-        trafficClass = "BlackMarker_MSB_8",
+        --Zero: Set the field to all zeroes
+        trafficClass = "Zero",
         --Flow Label
         --Options:
         --Keep: Keep the field as is
-        --BlackMarker: See the BlackMarker syntax example in the ethernet policy
-        flowLabel = "BlackMarker_MSB_20",
+        --Zero: Set the field to all zeroes
+        flowLabel = "Zero",
         --IPv6 payload length
         --Options:
         --Keep: Keep the field as is

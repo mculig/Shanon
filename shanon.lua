@@ -9,8 +9,9 @@ local shanonHelpers = require "shanonHelpers"
 --This allows for comments and documentation in the config
 local configStatus, config = pcall(require, "config.config")
 if configStatus == false then 
-    shanonHelpers.writeLog(shanonHelpers.logWarn, "Error loading config file. Loading produced the following error: " .. config .. " Defaults will be used.")
-    config = {}
+    shanonHelpers.crashWithError(
+        "Error loading config file. Loading produced the following error: " .. config, 
+        "Error loading config file. See log for details.")
 end
 
 
@@ -26,31 +27,17 @@ local Tap_Frame = Listener.new("frame")
 local Field_frame_protocols = Field.new("frame.protocols")
 local Field_frame_number = Field.new("frame.number")
 
--- Ethernet
-local ethernet = require "protocols.ethernet"
-
---ARP
-local arp = require "protocols.arp"
-
---IPv4
-local ipv4 = require "protocols.ipv4"
-
---IPv6 
-local ipv6 = require "protocols.ipv6"
-
---ICMP
-local icmp = require "protocols.icmp"
-
---ICMPv6
-local icmpv6 = require "protocols.icmpv6"
-
---NDP counts as ICMPv6 in the Wireshark
-
---UDP
-local udp = require "protocols.udp"
-
---TCP
-local tcp = require "protocols.tcp"
+--Protocols we anonymize
+local protocols = {
+    ethernet = require "protocols.ethernet",
+    arp = require "protocols.arp",
+    ipv4 = require "protocols.ipv4",
+    ipv6 = require "protocols.ipv6",
+    icmp = require "protocols.icmp",
+    icmpv6 = require "protocols.icmpv6",
+    udp = require "protocols.udp",
+    tcp = require "protocols.tcp"
+}
 
 --Get the output file path from the config file
 local filesystemPath = shanonHelpers.configGetOutputPath(config)
@@ -61,7 +48,7 @@ libAnonLua.add_interface(filesystemPath, libAnonLua.LINKTYPE_ETHERNET)
 local cryptoPANKeyFile = shanonHelpers.configGetCryptoPANKeyFile(config)
 local cryptoPANStatus = libAnonLua.init_cryptoPAN(cryptoPANKeyFile)
 if cryptoPANStatus == -1 then 
-    shanonHelpers.writeLog(shanonHelpers.logError, "Failed to initialize CryptoPAN, anonymizers requiring CryptoPAN will fail!")
+    shanonHelpers.crashWithError("Failed to initialize CryptoPAN, anonymizers requiring CryptoPAN will fail!")
 end
 
 --Function to tap into every frame
@@ -71,7 +58,6 @@ function Tap_Frame.packet(pinfo, tvb, tapinfo)
 
     local status --Status for pcall 
     local anonymizedFrame = "" --Create an empty anonymized frame
-    local anonymizerOutput -- To temporarily hold the output of a particular anonymizer
 
     --Get the protocol list
     local protocolList, protocolCount = shanonHelpers.split(tostring(Field_frame_protocols()), ":")
@@ -81,16 +67,9 @@ function Tap_Frame.packet(pinfo, tvb, tapinfo)
     --When fetching the individual protocol fields it is important to know which instance of the protocol this is in the chain
     --This is done by counting the number of times this appears and setting a relativeStackPosition
     --As the chain is parsed each time a protocol is encountered and processed this stack position is decremented
-    ethernet.relativeStackPosition = shanonHelpers.countOccurences(protocolList, protocolCount, "eth")
-    arp.relativeStackPosition = shanonHelpers.countOccurences(protocolList, protocolCount, "arp")
-    ipv4.relativeStackPosition = shanonHelpers.countOccurences(protocolList, protocolCount, "ip")
-    ipv6.relativeStackPosition = shanonHelpers.countOccurences(protocolList, protocolCount, "ipv6")
-    icmp.relativeStackPosition = shanonHelpers.countOccurences(protocolList, protocolCount, "icmp")
-    icmpv6.relativeStackPosition = shanonHelpers.countOccurences(protocolList, protocolCount, "icmpv6")
-    udp.relativeStackPosition = shanonHelpers.countOccurences(protocolList, protocolCount, "udp")
-    tcp.relativeStackPosition = shanonHelpers.countOccurences(protocolList, protocolCount, "tcp")
-
-
+    for protocolName, protocol in pairs(protocols) do 
+        protocol.relativeStackPosition = shanonHelpers.countOccurences(protocolList, protocolCount, protocol.filterName)
+    end
 
     --TODO: Remove temporary prints
     print(Field_frame_protocols()) 
@@ -99,106 +78,53 @@ function Tap_Frame.packet(pinfo, tvb, tapinfo)
     local currentPosition = protocolCount
 
     while currentPosition ~= 0 do
-        --Reset anonymizerOutput to empty string
-        anonymizerOutput = ""
-        if protocolList[currentPosition] == "eth" then
-            status, anonymizedFrame = pcall(ethernet.anonymize, tvb, protocolList, currentPosition, anonymizedFrame, config)
-            if status == false then
-                --An error was thrown. anonymizedFrame has the error info
-                shanonHelpers.writeLog(shanonHelpers.logError, "Error in frame: " .. frameNumber.value .. ". Ethernet anonymizer produced the following error: " .. anonymizedFrame)
-                --Clear the anonymized frame so erroneous output isn't accidentally preserved
-                anonymizedFrame = ""
+
+        --Check if protocol is one we know how to deal with
+        local protocolMatchFound = false
+
+        for protocolName, protocol in pairs(protocols) do
+            if protocolList[currentPosition] == protocol.filterName then
+                --This is a protocol we know how to deal with
+                protocolMatchFound = true
+                status, output = pcall(protocol.anonymize, tvb, protocolList, currentPosition, anonymizedFrame, config)
+                if status == false then 
+                    --Clear the anonymized frame so erroneous output isn't accidentally preserved
+                    anonymizedFrame = ""
+                    --Crash with an error
+                    shanonHelpers.crashWithError(
+                        "Error in frame: " .. frameNumber.value .. 
+                        ". Anonymizer for protocol: \"" .. protocolName .. "\" encountered an error. Check log for details.", 
+                        "Error in frame: " .. frameNumber.value .. ". Anonymizer for protocol: \"" .. protocolName .. 
+                        "\" encountered the following error: " .. output)
+                else
+                    --If everything went smoothly, set the anonymized frame to our anonymizer's output
+                    anonymizedFrame = output
+                end
+                --End the loop here
+                break
+            elseif protocol.fauxProtocols ~= nil then 
+                --If the protocol we're testing has a function to determine if a protocol is a faux protocol
+                --Such as the "ethertype" protocol that is simply a marker for Ethernet using a type field
+                --Then we run it to see if our protocol matches and if it does we count it as processed
+                if protocol.fauxProtocols(protocolList[currentPosition]) then 
+                    protocolMatchFound = true
+                    break
+                end
+                
             end
-            --TODO: Remove anonymizerOutput completely when all functions are rewritten to replace the entire frame
-            anonymizerOutput = ""
-        elseif protocolList[currentPosition] == "ethertype" then
-            --Nothing needs to be done for this. 
-            --ethertype is a faux protocol that just serves to inform that Ethernet II with a type field is in use
-        elseif protocolList[currentPosition] == "ip" then
-            status, anonymizedFrame = pcall(ipv4.anonymize, tvb, protocolList, currentPosition, anonymizedFrame, config)
-            if status == false then
-                --An error was thrown. anonymizerOutput has the error info
-                shanonHelpers.writeLog(shanonHelpers.logError,"Error in frame: " .. frameNumber.value .. ". " .. "IPv4 anonymizer produced the following error: " .. anonymizedFrame)
-                --Clear the anonymized frame so erroneous output isn't accidentally preserved
-                anonymizedFrame = ""
-            end
-            --TODO: Remove anonymizerOutput completely when all functions are rewritten to replace the entire frame
-            anonymizerOutput = ""
-        elseif protocolList[currentPosition] == "ipv6" then
-            status, anonymizedFrame = pcall(ipv6.anonymize, tvb, protocolList, currentPosition, anonymizedFrame, config)
-            if status == false then
-                --An error was thrown. anonymizerOutput has the error info
-                shanonHelpers.writeLog(shanonHelpers.logError, "Error in frame: " .. frameNumber.value .. ". " .. "IPv6 anonymizer produced the following error: " .. anonymizerOutput)
-                --Set the output to an empty string so nothing is added to the frame
-                anonymizedFrame = ""
-            end
-            --TODO: Remove anonymizerOutput completely when all functions are rewritten to replace the entire frame
-            anonymizerOutput = ""
-        elseif protocolList[currentPosition]:find("ipv6.") then
-            --Nothing needs to be done for this
-            --The "ipv6." prefix is used to mark ipv6 extension headers, such as "ipv6.dstopts" and should be skipped
-        elseif protocolList[currentPosition] == "arp" then
-            status, anonymizedFrame = pcall(arp.anonymize, tvb, protocolList, currentPosition, anonymizedFrame, config)
-            if status == false then
-                --An error was thrown. anonymizerOutput has the error info
-                shanonHelpers.writeLog(shanonHelpers.logError, "Error in frame: " .. frameNumber.value .. ". " .. "ARP anonymizer produced the following error: " .. anonymizerOutput)
-                --Set the output to an empty string so nothing is added to the frame
-                anonymizedFrame = ""
-            end
-            --TODO: Remove anonymizerOutput completely when all functions are rewritten to replace the entire frame
-            anonymizerOutput = ""
-        elseif protocolList[currentPosition] == "icmp" then
-            status, anonymizerOutput = pcall(icmp.anonymize, tvb, protocolList, anonymizationPolicy)
-            if status == false then
-                --An error was thrown. anonymizerOutput has the error info
-                shanonHelpers.writeLog(shanonHelpers.logError, "Error in frame: " .. frameNumber.value .. ". " .. "ICMP anonymizer produced the following error: " .. anonymizerOutput)
-                --Set the output to an empty string so nothing is added to the frame
-                anonymizerOutput = ""
-            end
-            --In the particular case of ICMP and ICMPv6 the anonymizedFrame should always be set to empty
-            --This is because we will catch and parse the protocol headers and fields included as a 
-            --partial header/data in the ICMP data as they show up in the list of protocols we get from Wireshark
-            --But we don't want to anonymize partial headers to avoid issues 
-            --Instead we're treating them as data in the ICMP/ICMPv6 anonymizer
-            anonymizedFrame = ""
-        elseif protocolList[currentPosition] == "icmpv6" then
-            status, anonymizerOutput = pcall(icmpv6.anonymize, tvb, protocolList, anonymizationPolicy)
-            if status == false then
-                --An error was thrown. anonymizerOutput has the error info
-                shanonHelpers.writeLog(shanonHelpers.logError, "Error in frame: " .. frameNumber.value .. ". " .. "ICMPv6 anonymizer produced the following error: " .. anonymizerOutput)
-                --Set the output to an empty string so nothing is added to the frame
-                anonymizerOutput = ""
-            end
-            --In the particular case of ICMP and ICMPv6 the anonymizedFrame should always be set to empty
-            --This is because we will catch and parse the protocol headers and fields included as a 
-            --partial header/data in the ICMP data as they show up in the list of protocols we get from Wireshark
-            --But we don't want to anonymize partial headers to avoid issues 
-            --Instead we're treating them as data in the ICMP/ICMPv6 anonymizer
-            anonymizedFrame = ""
-        elseif protocolList[currentPosition] == "tcp" then
-            status, anonymizerOutput = pcall(tcp.anonymize, tvb, protocolList, anonymizationPolicy)
-            if status == false then
-                --An error was thrown. anonymizerOutput has the error info
-                shanonHelpers.writeLog(shanonHelpers.logError, "Error in frame: " .. frameNumber.value .. ". " .. "TCP anonymizer produced the following error: " .. anonymizerOutput)
-                --Set the output to an empty string so nothing is added to the frame
-                anonymizerOutput = ""
-            end
-        elseif protocolList[currentPosition] == "udp" then
-            status, anonymizerOutput = pcall(udp.anonymize, tvb, protocolList, anonymizationPolicy)
-            if status == false then
-                --An error was thrown. anonymizerOutput has the error info
-                shanonHelpers.writeLog(shanonHelpers.logError, "Error in frame: " .. frameNumber.value .. ". " .. "UDP anonymizer produced the following error: " .. anonymizerOutput)
-                --Set the output to an empty string so nothing is added to the frame
-                anonymizerOutput = ""
-            end
-        else
+        end
+        --If we do not find a matching protocol, we log it and set the frame to empty here so the next protocol knows
+        --to treat the lower layer stuff as data
+        if not protocolMatchFound then 
+            --TODO: This is a lot of log data. Provide an option to mute it if it's not of interest to the user
+            shanonHelpers.writeLog(shanonHelpers.logInfo, "Unhandled protocol: \"" .. protocolList[currentPosition] .. "\" encountered at position: " 
+            .. currentPosition .. " in protocol chain in frame " .. frameNumber.value .. 
+            " This protocol will be treated as data by lower layer protocols and will be anonymized as data.")
             --If we encounter something unknown, we simply set the anonymized frame empty again
             anonymizedFrame = ""
             --An empty frame signals to anonymizer functions that higher layer protocols should be treated as data
         end
 
-        --Add to front of anonymized frame
-        anonymizedFrame = anonymizerOutput .. anonymizedFrame
         --Always decrement the current position
         currentPosition = currentPosition - 1; 
     end
@@ -206,10 +132,10 @@ function Tap_Frame.packet(pinfo, tvb, tapinfo)
     
     --At this point we will have parsed and anonymized all protocolsP
      --We can write the anonymized frame to the capture file
-    writePacket(pinfo, anonymizedFrame)
+    writePacket(pinfo, anonymizedFrame, frameNumber)
 end
 
-function writePacket(pinfo, anonymizedFrame)
+function writePacket(pinfo, anonymizedFrame, frameNumber)
 
     --Timestamp default value is relative
     local timestampValue = pinfo.rel_ts

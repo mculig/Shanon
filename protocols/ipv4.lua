@@ -8,6 +8,9 @@ local shanonPolicyValidators = require "shanonPolicyValidators"
 --Module table
 local IPv4={}
 
+--The filter name is used when looking for instances of this protocol
+IPv4.filterName = "ip"
+
 --Relative stack position is used to determine which of many possible instances of this protocol is being processed
 IPv4.relativeStackPosition = 1
 
@@ -22,23 +25,10 @@ IPv4.checksum = Field.new("ip.checksum") -- Checksum
 IPv4.src = Field.new("ip.src") -- Source Address
 IPv4.dst = Field.new("ip.dst") -- Destination Address
 
---The default anonymization policy for this protocol
-IPv4.defaultPolicy = {
-    default = {
-        dscpEcn = "BlackMarker_MSB_8",
-        length = "Recalculate",
-        id = "BlackMarker_MSB_16",
-        flagsAndOffset = "BlackMarker_MSB_16",
-        ttl = "SetValue_64",
-        checksum = "Recalculate",
-        address = {
-            default = {"CryptoPAN"}
-        }
-    }
-}
 --Policy validation functions
 IPv4.policyValidation = {
-    dscpEcn = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep"}, shanonPolicyValidators.validateBlackMarker, nil),
+    dscp = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep", "Zero"}),
+    ecn = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep", "Zero"}),
     length = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep", "Recalculate"}),
     id = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep"}, shanonPolicyValidators.validateBlackMarker, nil),
     flagsAndOffset = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep"}, shanonPolicyValidators.validateBlackMarker, nil),
@@ -108,14 +98,22 @@ function IPv4.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, con
     end
 
     --Version/IHL is set to a default 45
-    --TODO: Should values that don't match be logged?
+    --TODO: Log mismatched values
     ipVersionIhlAnon = ByteArray.new("45"):raw()
 
-    if policy.dscpEcn == "Keep" then
-        ipDscpEcnAnon = ipDscpEcn
+    --Apply masks to DSCP/ECN depending on the chosen policy options
+    if policy.dscp == "Keep" and policy.ecn == "Keep" then 
+        local mask = ByteArray.new("FF"):raw()
+        ipDscpEcnAnon = libAnonLua.apply_mask(ipDscpEcn, mask)
+    elseif policy.dscp == "Keep" and policy.ecn == "Zero" then
+        local mask = ByteArray.new("FC"):raw()
+        ipDscpEcnAnon = libAnonLua.apply_mask(ipDscpEcn, mask)
+    elseif policy.dscp == "Zero" and policy.ecn == "Keep" then 
+        local mask = ByteArray.new("03"):raw()
+        ipDscpEcnAnon = libAnonLua.apply_mask(ipDscpEcn, mask)
     else
-       local blackMarkerDirection, blackMarkerLength = shanonHelpers.getBlackMarkerValues(policy.dscpEcn)
-       ipDscpEcnAnon = libAnonLua.black_marker(ipDscpEcn, blackMarkerLength, blackMarkerDirection)
+        local mask = ByteArray.new("00"):raw()
+        ipDscpEcnAnon = libAnonLua.apply_mask(ipDscpEcn, mask)
     end
 
     if policy.length == "Keep" then
@@ -211,20 +209,18 @@ function IPv4.validatePolicy(config)
 
     --Verify the default policy exists and its contents
     if config.anonymizationPolicy.ipv4 == nil then
-        shanonHelpers.warnMissingPolicy("IPv4")
-        config.anonymizationPolicy.ipv4 = IPv4.defaultPolicy
+        shanonHelpers.crashMissingPolicy("IPv4")
     else
         if config.anonymizationPolicy.ipv4.default == nil then
-            shanonHelpers.writeLog(shanonHelpers.logWarn, "Default anonymization policy for unspecified IPv4 subnets not found. Using built-in default!")
-            config.anonymizationPolicy.ipv4.default = IPv4.defaultPolicy.default
+
+            shanonHelpers.crashWithError("Default anonymization policy for unspecified IPv4 subnets not found.")
         end
         --Since the options in the config are named the same as the validators we can iterate through the validators and run them on the
         --similarly named options.
         --The only exception here is the address which needs some specific validation code
         for option, validator in pairs(IPv4.policyValidation) do
             if not validator(config.anonymizationPolicy.ipv4.default[option]) then
-                shanonHelpers.warnUsingDefaultOption("IPv4", option, IPv4.defaultPolicy.default[option])
-                config.anonymizationPolicy.ipv4.default[option] = IPv4.defaultPolicy.default[option]
+                shanonHelpers.crashMissingPolicy("IPv4", option)
             end
         end
     end
@@ -233,30 +229,23 @@ function IPv4.validatePolicy(config)
     if config.anonymizationPolicy.ipv4.subnets ~= nil then 
         for subnet, policy in pairs(config.anonymizationPolicy.ipv4.subnets) do
             if next(policy) == nil then
-                shanonHelpers.writeLog(shanonHelpers.logWarn, "Invalid subnet: " .. subnet .. " in IPv4 subnet config. Policy cannot be empty. Default settings will be applied to this subnet")
-                config.anonymizationPolicy.ipv4.subnets[subnet] = nil
-                --Lua has no continue...so annoying
-                goto continueSubnetIPv4
+                shanonHelpers.crashWithError("Invalid subnet: " .. subnet .. " in IPv4 subnet config. Policy cannot be empty.")
             end
             if not shanonPolicyValidators.verifyIPv4Subnet(subnet) then
-                shanonHelpers.writeLog(shanonHelpers.logWarn, "Invalid subnet: " .. subnet .. " in IPv4 subnet config. Default settings will be applied to this subnet")
-                config.anonymizationPolicy.ipv4.subnets[subnet] = nil
-                --Lua has no continue...so annoying
-                goto continueSubnetIPv4
+                shanonHelpers.crashWithError("Invalid subnet: " .. subnet .. " in IPv4 subnet config.")
             else
                 --Validate subnet settings here and copy from the config default (not the IPv4 defaults used before) if missing
                 --This won't be logged as subnet settings are expected to differ partially from the default IPv4 settings
                 --and it is valid for them not to have each option explicitly stated
+                --Invalid options will still result in the application ending execution with a warning, however
                 for option, validator in pairs(IPv4.policyValidation) do 
                     if policy[option] == nil then 
                         policy[option] = config.anonymizationPolicy.ipv4.default[option]                     
                     elseif not validator(policy[option]) then 
-                        shanonHelpers.warnUsingDefaultOption("IPv4 subnet \"" .. subnet .. "\": ", option, config.anonymizationPolicy.ipv4.default[option])
-                        policy[option] = config.anonymizationPolicy.ipv4.default[option]
+                        shanonHelpers.crashMissingOption("IPv4 subnet \"" .. subnet .. "\": ", option)
                     end
                 end
             end
-            ::continueSubnetIPv4::
         end
     end
 
@@ -266,13 +255,13 @@ function IPv4.applyAnonymizationMethods(ipAddr, anonymizationMethods)
     --Apply the anonymization methods listed
     local tmpAnon = ipAddr
     local i = 1
-    while (anonymizationMethods[i]~=nil) do
+    while anonymizationMethods[i]~=nil do
         if anonymizationMethods[i] == "Keep" then 
             tmpAnon = tmpAnon
         elseif anonymizationMethods[i] =="CryptoPAN" then 
             local anonStatus, anonResult = libAnonLua.cryptoPAN_anonymize_ipv4(tmpAnon)
             if anonStatus == -1 then 
-                error("Failed to run CryptoPAN algorithm!")
+                shanonHelpers.crashWithError("Failed to run CryptoPAN algorithm during IPv4 anonymization!")
             else
                 tmpAnon = anonResult
             end

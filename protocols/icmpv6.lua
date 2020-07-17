@@ -7,6 +7,9 @@ local shanonHelpers = require "shanonHelpers"
 --Module table
 local ICMPv6={}
 
+--The filter name is used when looking for instances of this protocol
+ICMPv6.filterName = "icmpv6"
+
 --Relative stack position is used to determine which of many possible instances of this protocol is being processed
 ICMPv6.relativeStackPosition = 1
 
@@ -72,7 +75,7 @@ ICMPv6.OPT.Redirect = {}
 ICMPv6.OPT.Redirect.RedirectedPacket = Field.new("icmpv6.opt.redirected_packet")
 
 
-function ICMPv6.anonymize(tvb, protocolList, anonymizationPolicy)
+function ICMPv6.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, config)
 
     --Create a local relativeStackPosition and decrement the main
     --That way if any weird behaviour occurs the rest of execution isn't neccessarily compromised

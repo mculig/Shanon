@@ -8,6 +8,18 @@ local shanonPolicyValidators = require "shanonPolicyValidators"
 --Module table
 local Ethernet={}
 
+--The filter name is used when looking for instances of this protocol
+Ethernet.filterName = "eth"
+
+--A function to test if this is a faux protocol meant to indicate options of this protocol
+function Ethernet.fauxProtocols(protocol)
+    if protocol == "ethertype" then 
+        return true
+    else
+        return false
+    end
+end
+
 --Relative stack position is used to determine which of many possible instances of this protocol is being processed
 Ethernet.relativeStackPosition = 1
 
@@ -17,14 +29,6 @@ Ethernet.src = Field.new("eth.src") --Source Address
 Ethernet.type = Field.new("eth.type") -- Type
 Ethernet.length = Field.new("eth.len") -- Length
 --FCS is often not present and needs to be recalculated anyway
-
---The default anonymization policy for this protocol
-Ethernet.defaultPolicy = {
-    --Recalculate the fcs, apply a BlackMarker method to the address, recalculate the length based on payload length
-    fcs = "Recalculate",
-    address = "BlackMarker_MSB_24",
-    length = "Recalculate"
-}
 
 --Policy validation functions for Ethernet policies
 Ethernet.policyValidation = 
@@ -121,23 +125,14 @@ function Ethernet.validatePolicy(config)
     --If there is no policy for Ethernet, copy the default policy over
     --Otherwise check if each individual policy value is valid
     if config.anonymizationPolicy.ethernet == nil then 
-        shanonHelpers.warnMissingPolicy("Ethernet")
-        config.anonymizationPolicy.ethernet = Ethernet.defaultPolicy
+        shanonHelpers.crashMissingPolicy("Ethernet")
     else
-        if not Ethernet.policyValidation.fcs(config.anonymizationPolicy.ethernet.fcs) then
-            shanonHelpers.warnUsingDefaultOption("Ethernet", "FCS", Ethernet.defaultPolicy.fcs)
-            config.anonymizationPolicy.ethernet.fcs = Ethernet.defaultPolicy.fcs 
-        end
-        if not Ethernet.policyValidation.address(config.anonymizationPolicy.ethernet.address) then
-            shanonHelpers.warnUsingDefaultOption("Ethernet", "address", Ethernet.defaultPolicy.address)
-            config.anonymizationPolicy.ethernet.address = Ethernet.defaultPolicy.address
-        end
-        if not Ethernet.policyValidation.length(config.anonymizationPolicy.ethernet.length) then
-            shanonHelpers.warnUsingDefaultOption("Ethernet", "length", Ethernet.defaultPolicy.length)
-            config.anonymizationPolicy.ethernet.length = Ethernet.defaultPolicy.length
+        for option, validator in pairs(Ethernet.policyValidation) do
+            if not validator(config.anonymizationPolicy.ethernet[option]) then
+                shanonHelpers.crashMissingOption("Ethernet", option)
+            end
         end
     end
-
 end
 
 --Return the module table
