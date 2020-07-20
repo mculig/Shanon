@@ -116,7 +116,7 @@ Config.anonymizationPolicy.ipv6 = {
     --These behave the same way rules for IPv4 subnets behave
     subnets = {
         ["fe80::/10"] = {
-            trafficClass = "BlackMarker_MSB_8"
+            trafficClass = "Zero"
         }
     },
     --The default rule is applied to each packet that doesn't match a particular subnet
@@ -160,13 +160,13 @@ Config.anonymizationPolicy.ipv6 = {
         --Fragment offset
         --Options:
         --Keep: Keep the fragment offset unchanged
-        --BlackMarker: See the BlackMarker syntax example in the ethernet policy
-        headers_fragment_fragmentOffset = "BlackMarker_MSB_13",
+        --Zero: Set this field to zero
+        headers_fragment_fragmentOffset = "Zero",
         --Identification field
         --Options:
         --Keep: Keep the identification field unchanged
-        --BlackMarker: See the BlackMarker syntax example in the ethernet policy
-        headers_fragment_identification = "BlackMarker_MSB_32",
+        --Zero: Set this field to zero
+        headers_fragment_identification = "Zero",
         --Destination Options headers
         --Same options as hop by hop
         headers_dstOpt_keep = "True",

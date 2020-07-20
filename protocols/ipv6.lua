@@ -77,8 +77,8 @@ IPv6.policyValidation =
     headers_hopByHop_payload = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Zero", "Minimum", "Keep"}),
     headers_routing_keep = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"True", "False"}),
     headers_routing_payload = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Zero", "Minimum", "Keep"}),
-    headers_fragment_fragmentOffset = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep"}, shanonPolicyValidators.validateBlackMarker, nil),
-    headers_fragment_identification = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep"}, shanonPolicyValidators.validateBlackMarker, nil),
+    headers_fragment_fragmentOffset = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep", "Zero"}),
+    headers_fragment_identification = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep", "Zero"}),
     headers_dstOpt_keep = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"True", "False"}),
     headers_dstOpt_payload = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Zero", "Minimum", "Keep"}),
     address = shanonPolicyValidators.keyValidatedTableMultiValidatorFactory(shanonPolicyValidators.verifyIPv6Subnet, true, shanonPolicyValidators.isPossibleOption, {"Keep", "CryptoPAN"}, shanonPolicyValidators.validateBlackMarker, nil)
@@ -152,13 +152,8 @@ function IPv6.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, con
     end
 
     --TODO: Set 1st 4 bits of versionClassLabelAnon to 6 for IPv6
-
-
-    --TODO: Recalculate payload length at end
-    payloadLengthAnon = payloadLength
     
     --Next header stays the same (or is recalculated by the options below)
-    --TODO: Explore parsing the protocol chain to find the higher layer protocol
     nextHeaderAnon = nextHeader
 
     if policy.hopLimit == "Keep" then
@@ -204,7 +199,7 @@ function IPv6.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, con
     --Handle Extension Headers here
     local nextHeaderValue
     local extensionHeaderData
-    nextHeaderValue, extensionHeaderData = IPv6.handleExtensionHeaders(tvb, relativeStackPosition)
+    nextHeaderValue, extensionHeaderData = IPv6.handleExtensionHeaders(tvb, relativeStackPosition, policy)
 
     if nextHeaderValue ~= nil then
         --We got a valid result, set the IPv6 next header to the 1st option header in our option chain
@@ -215,11 +210,21 @@ function IPv6.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, con
         extensionHeaderData = ""
     end
 
+    --Recalculate payload length at end
+    if policy.length == "Keep" then 
+        payloadLengthAnon = payloadLength
+    else 
+        payloadLengthAnon = shanonHelpers.getLengthAsBytes(extensionHeaderData .. anonymizedFrame, 2)
+    end
+
+    --TODO: Deal with TCP, UDP and ICMPv6 checksums here
+
+
     --Return the anonymization result
     return versionClassLabelAnon .. payloadLengthAnon .. nextHeaderAnon .. hopLimitAnon .. srcAnon .. dstAnon .. extensionHeaderData .. anonymizedFrame
 end
 
-function IPv6.handleExtensionHeaders(tvb, relativeStackPosition)
+function IPv6.handleExtensionHeaders(tvb, relativeStackPosition, policy)
 
     --Determine the boundaries of where extension headers can be located in the tvb
     --This is to prevent parsing options that belong to other, encapsulated IPv6 headers
@@ -240,17 +245,29 @@ function IPv6.handleExtensionHeaders(tvb, relativeStackPosition)
         ipv6UpperLimit = dst[relativeStackPosition].offset + dst[relativeStackPosition].len + length[relativeStackPosition].value
     end
 
-    
+    --Set these values back to their proper defaults. 
+    IPv6.EXTHDR.NextHeaders = {}
+    IPv6.EXTHDR.NextHeadersLength = 0
+
+    --An empty payload to use with an option of minimum length
+    local minimumOptionPayload = ByteArray.new("000000000000"):raw()
+    local minimumOptionLength = ByteArray.new("07"):raw()
+
     --Hop-by-hop Options
-    extensionHeaderHopByHopLength = { IPv6.EXTHDR.HOP.Length() }
+    local extensionHeaderHopByHopLength = { IPv6.EXTHDR.HOP.Length() }
     --Destination Options
-    extensionHeaderDestinationOptionsLength = { IPv6.EXTHDR.DST.Length() }
+    local extensionHeaderDestinationOptionsLength = { IPv6.EXTHDR.DST.Length() }
     --Routing Header
-    extensionHeaderRoutingLength = { IPv6.EXTHDR.RT.Length() }
+    local extensionHeaderRoutingLength = { IPv6.EXTHDR.RT.Length() }
     --Fragment Header
-    extensionHeaderFragmentReserved = { IPv6.EXTHDR.FRAG.Reserved() }
+    local extensionHeaderFragmentReserved = { IPv6.EXTHDR.FRAG.Reserved() }
     
     while extensionHeaderHopByHopLength[IPv6.EXTHDR.HOP.Count] ~= nil do
+
+        --Check if we should skip this
+        if policy.headers_hopByHop_keep == "False" then 
+            break;
+        end
 
         --Local variables need to be declared here because goto cannot jump into the scope of a local variable in Lua
         local hopByHopDataLength
@@ -283,9 +300,18 @@ function IPv6.handleExtensionHeaders(tvb, relativeStackPosition)
         hopByHopOpts = shanonHelpers.getBytesAfterField(tvb, IPv6.EXTHDR.HOP.Length, IPv6.EXTHDR.HOP.Count, hopByHopDataLength)
 
         --Anonymize fields
-        hopByHopLengthAnon = hopByHopLength
-        hopByHopOptsAnon = hopByHopOpts
-
+        if policy.headers_hopByHop_payload == "Keep" then 
+            hopByHopLengthAnon = hopByHopLength
+            hopByHopOptsAnon = hopByHopOpts
+        elseif policy.headers_hopByHop_payload == "Minimum" then 
+            hopByHopLengthAnon = minimumOptionLength
+            hopByHopOptsAnon = minimumOptionPayload
+        else 
+            --Zero
+            hopByHopLengthAnon = hopByHopLength
+            hopByHopOptsAnon = shanonHelpers.generateZeroPayload(hopByHopOpts:len())
+        end
+        
         --Add fields to HeaderData array
         IPv6.EXTHDR.HeaderDataLength = IPv6.EXTHDR.HeaderDataLength + 1
         IPv6.EXTHDR.HeaderData[IPv6.EXTHDR.HeaderDataLength] = hopByHopLengthAnon .. hopByHopOptsAnon
@@ -297,6 +323,12 @@ function IPv6.handleExtensionHeaders(tvb, relativeStackPosition)
     end
 
     while extensionHeaderDestinationOptionsLength[IPv6.EXTHDR.DST.Count] ~= nil do
+
+        --Check if we should skip this
+        if policy.headers_dstOpt_keep == "False" then 
+            break;
+        end
+
         --Local variables need to be declared here because goto cannot jump into the scope of a local variable in Lua
         local dstOptDataLength
         local dstOptLength
@@ -326,8 +358,17 @@ function IPv6.handleExtensionHeaders(tvb, relativeStackPosition)
         dstOptOpts = shanonHelpers.getBytesAfterField(tvb, IPv6.EXTHDR.DST.Length, IPv6.EXTHDR.DST.Count, dstOptDataLength) 
 
         --Anonymize fields
-        dstOptLengthAnon = dstOptLength
-        dstOptOptsAnon = dstOptOpts
+        if policy.headers_dstOpt_payload == "Keep" then 
+            dstOptLengthAnon = dstOptLength
+            dstOptOptsAnon = dstOptOpts
+        elseif policy.headers_dstOpt_payload == "Minimum" then 
+            dstOptLengthAnon = minimumOptionLength
+            dstOptOptsAnon = minimumOptionPayload
+        else 
+            --Zero
+            dstOptLengthAnon = dstOptLength
+            dstOptOptsAnon = shanonHelpers.generateZeroPayload(dstOptOpts:len())
+        end
 
         --Add fields to HeaderData array
         IPv6.EXTHDR.HeaderDataLength = IPv6.EXTHDR.HeaderDataLength + 1
@@ -340,6 +381,12 @@ function IPv6.handleExtensionHeaders(tvb, relativeStackPosition)
     end
 
     while extensionHeaderRoutingLength[IPv6.EXTHDR.RT.Count] ~=nil do
+
+        --Check if we should skip this
+        if policy.headers_routing_keep == "False" then 
+            break;
+        end
+
         --Local variables need to be declared here because goto cannot jump into the scope of a local variable in Lua
         local routingDataLength
         local routingLength
@@ -375,12 +422,24 @@ function IPv6.handleExtensionHeaders(tvb, relativeStackPosition)
         routingSegmentsLeft = shanonHelpers.getRaw(tvb, IPv6.EXTHDR.RT.SegmentsLeft, IPv6.EXTHDR.RT.Count)
         routingData = shanonHelpers.getBytesAfterField(tvb, IPv6.EXTHDR.RT.SegmentsLeft, IPv6.EXTHDR.RT.Count, routingDataLength)
 
-
         --Anonymize fields
-        routingLengthAnon = routingLength
+        --Type is always preserved
         routingTypeAnon = routingType
-        routingSegmentsLeftAnon = routingSegmentsLeft
-        routingDataAnon = routingData
+
+        if policy.headers_routing_payload == "Keep" then 
+            routingLengthAnon = routingLength    
+            routingSegmentsLeftAnon = routingSegmentsLeft
+            routingDataAnon = routingData
+        elseif policy.headers_routing_payload == "Minimum" then 
+            routingLengthAnon = minimumOptionLength;
+            routingSegmentsLeftAnon = ByteArray.new("00"):raw() --Zero segments
+            routingDataAnon = ByteArray.new("00000000"):raw() --4 bytes to create a total length of 8 octets
+        else 
+            --Zero
+            routingLengthAnon = routingLength
+            routingSegmentsLeftAnon = routingSegmentsLeft
+            routingDataAnon = shanonHelpers.generateZeroPayload(routingData:len())
+        end
 
         --Add fields to HeaderData array
         IPv6.EXTHDR.HeaderDataLength = IPv6.EXTHDR.HeaderDataLength + 1
@@ -393,10 +452,12 @@ function IPv6.handleExtensionHeaders(tvb, relativeStackPosition)
     end
 
     while extensionHeaderFragmentReserved[IPv6.EXTHDR.FRAG.Count] ~=nil do
+
         --Local variables need to be declared here because goto cannot jump into the scope of a local variable in Lua
         local fragmentHeaderReserved
         local fragmentHeaderOffseAndFlags
         local fragmentHeaderIdentification
+        local mask
 
         --Anonymized fields
         local fragmentHeaderReservedAnon
@@ -421,9 +482,24 @@ function IPv6.handleExtensionHeaders(tvb, relativeStackPosition)
         fragmentHeaderIdentification = shanonHelpers.getRaw(tvb, IPv6.EXTHDR.FRAG.Identification, IPv6.EXTHDR.FRAG.Count)
         
         --Anonymize fields
-        fragmentHeaderReservedAnon = fragmentHeaderReserved
-        fragmentHeaderOffseAndFlagsAnon = fragmentHeaderOffsetAndFlags
-        fragmentHeaderIdentificationAnon = fragmentHeaderIdentification
+        --The reserved field should be all zeroes so we zero it out
+        fragmentHeaderReservedAnon = shanonHelpers.generateZeroPayload(1)
+        if policy.headers_fragment_fragmentOffset == "Keep" then 
+            mask = ByteArray.new("FFF9"):raw()
+            fragmentHeaderOffseAndFlagsAnon = shanonHelpers.apply_mask(fragmentHeaderOffsetAndFlags, mask)
+        else
+            --Zero
+            mask = ByteArray.new("0001"):raw()
+            fragmentHeaderOffseAndFlagsAnon = shanonHelpers.apply_mask(fragmentHeaderOffseAndFlags, mask)
+        end
+        
+        if policy.headers_fragment_identification == "Keep" then
+            fragmentHeaderIdentificationAnon = fragmentHeaderIdentification
+        else 
+            --Generate 4 bytes of zeroes to replace this instead
+            fragmentHeaderIdentificationAnon = shanonHelpers.generateZeroPayload(4)
+        end
+        
 
         --Add fields to HeaderDataArray
         IPv6.EXTHDR.HeaderDataLength = IPv6.EXTHDR.HeaderDataLength + 1
@@ -453,7 +529,9 @@ function IPv6.handleExtensionHeaders(tvb, relativeStackPosition)
                 extensionHeadersPayload = extensionHeadersPayload .. IPv6.EXTHDR.NextHeaders[i+1]
             else
                 --TODO: Pass the type of payload to the anonymize function and pass it here to assign correct next header value
-                extensionHeadersPayload = extensionHeadersPayload .. ByteArray.new("00"):raw()
+                --If we don't have a type we can process, 61 is host-internal and will be used instead 
+
+                extensionHeadersPayload = extensionHeadersPayload .. ByteArray.new("3D"):raw()
             end
             -- Add the processed header data
             extensionHeadersPayload = extensionHeadersPayload .. IPv6.EXTHDR.HeaderData[i]
