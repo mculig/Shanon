@@ -118,7 +118,13 @@ function IPv6.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, con
 
     --Anonymize stuff here
 
-    --TODO: Check if anonymizedFrame is empty and apply a minimum payload
+    --Check if anonymizedFrame is empty and apply a minimum payload
+    if anonymizedFrame == "" then 
+        --20 Bytes as a minimum payload
+        --This is expected to cause errors if it is ever necessary
+        --But most likely this will only ever happen when a protocol anonymizer failed due to a missing or partial field
+        anonymizedFrame = ByteArray.new("0000000000000000000000000000000000000000"):raw()
+    end
 
     local policy
 
@@ -153,8 +159,10 @@ function IPv6.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, con
 
     --TODO: Set 1st 4 bits of versionClassLabelAnon to 6 for IPv6
     
-    --Next header stays the same (or is recalculated by the options below)
-    nextHeaderAnon = nextHeader
+    --Find the higher-layer protocol and try to set the next header if we recognize it
+    --If there are no options we can parse or they're all skipped this ensures we're still pointing to the higher layer protocol
+    --BUT in cases where we do not recognize the higher layer protocol (all but TCP, UDP and ICMPv6) that information is lost
+    nextHeaderAnon = IPv6.getPayloadProtocolNextHeaderValue(protocolList, currentPosition)
 
     if policy.hopLimit == "Keep" then
         hopLimitAnon = hopLimit
@@ -199,7 +207,7 @@ function IPv6.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, con
     --Handle Extension Headers here
     local nextHeaderValue
     local extensionHeaderData
-    nextHeaderValue, extensionHeaderData = IPv6.handleExtensionHeaders(tvb, relativeStackPosition, policy)
+    nextHeaderValue, extensionHeaderData = IPv6.handleExtensionHeaders(tvb, relativeStackPosition, policy, protocolList, currentPosition)
 
     if nextHeaderValue ~= nil then
         --We got a valid result, set the IPv6 next header to the 1st option header in our option chain
@@ -210,21 +218,34 @@ function IPv6.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, con
         extensionHeaderData = ""
     end
 
-    --Recalculate payload length at end
+    --Recalculate payload length
     if policy.length == "Keep" then 
         payloadLengthAnon = payloadLength
     else 
         payloadLengthAnon = shanonHelpers.getLengthAsBytes(extensionHeaderData .. anonymizedFrame, 2)
     end
 
-    --TODO: Deal with TCP, UDP and ICMPv6 checksums here
+    --Assemble the fully anonymized IPv6 packet
+    local ipv6HeaderAndOptionsAnon = versionClassLabelAnon .. payloadLengthAnon .. nextHeaderAnon .. hopLimitAnon .. srcAnon .. dstAnon .. extensionHeaderData
+    local ipv6PacketAnon = ipv6HeaderAndOptionsAnon .. anonymizedFrame
 
+    --Deal with TCP, UDP and ICMPv6 checksums here
+    local payloadProtoName = IPv6.getPayloadProtocolName(protocolList, currentPosition)
+
+
+    if payloadProtoName == "icmpv6" then 
+        local icmpv6Checksum
+        icmpv6Checksum, ipv6PacketAnon = libAnonLua.calculate_icmpv6_checksum(ipv6PacketAnon)
+    elseif payloadProtoName == "tcp" or payloadProtoName == "udp" then 
+        local checksumAnon, anonymizedFrame = libAnonLua.calculate_tcp_udp_checksum(ipv6PacketAnon)
+        ipv6PacketAnon = ipv6HeaderAndOptionsAnon .. anonymizedFrame
+    end
 
     --Return the anonymization result
-    return versionClassLabelAnon .. payloadLengthAnon .. nextHeaderAnon .. hopLimitAnon .. srcAnon .. dstAnon .. extensionHeaderData .. anonymizedFrame
+    return ipv6PacketAnon
 end
 
-function IPv6.handleExtensionHeaders(tvb, relativeStackPosition, policy)
+function IPv6.handleExtensionHeaders(tvb, relativeStackPosition, policy, protocolList, currentPosition)
 
     --Determine the boundaries of where extension headers can be located in the tvb
     --This is to prevent parsing options that belong to other, encapsulated IPv6 headers
@@ -248,6 +269,8 @@ function IPv6.handleExtensionHeaders(tvb, relativeStackPosition, policy)
     --Set these values back to their proper defaults. 
     IPv6.EXTHDR.NextHeaders = {}
     IPv6.EXTHDR.NextHeadersLength = 0
+    IPv6.EXTHDR.HeaderData = {}
+    IPv6.EXTHDR.HeaderDataLength = 0
 
     --An empty payload to use with an option of minimum length
     local minimumOptionPayload = ByteArray.new("000000000000"):raw()
@@ -465,10 +488,10 @@ function IPv6.handleExtensionHeaders(tvb, relativeStackPosition, policy)
         local fragmentHeaderIdentificationAnon
 
         --Check if within boundaries
-        if extensionHeaderFragmentReserved[IPv6.EXTHDR.HOP.Count].offset < ipv6LowerLimit then
+        if extensionHeaderFragmentReserved[IPv6.EXTHDR.FRAG.Count].offset < ipv6LowerLimit then
             --We're in a previous header BUT we can still keep searching
             goto continueFragmentHeader
-        elseif extensionHeaderFragmentReserved[IPv6.EXTHDR.HOP.Count].offset > ipv6UpperLimit then
+        elseif extensionHeaderFragmentReserved[IPv6.EXTHDR.FRAG.Count].offset > ipv6UpperLimit then
             --We're beyond the options of this header, break the loop
             break
         end
@@ -486,11 +509,11 @@ function IPv6.handleExtensionHeaders(tvb, relativeStackPosition, policy)
         fragmentHeaderReservedAnon = shanonHelpers.generateZeroPayload(1)
         if policy.headers_fragment_fragmentOffset == "Keep" then 
             mask = ByteArray.new("FFF9"):raw()
-            fragmentHeaderOffseAndFlagsAnon = shanonHelpers.apply_mask(fragmentHeaderOffsetAndFlags, mask)
+            fragmentHeaderOffseAndFlagsAnon = libAnonLua.apply_mask(fragmentHeaderOffsetAndFlags, mask)
         else
             --Zero
             mask = ByteArray.new("0001"):raw()
-            fragmentHeaderOffseAndFlagsAnon = shanonHelpers.apply_mask(fragmentHeaderOffseAndFlags, mask)
+            fragmentHeaderOffseAndFlagsAnon = libAnonLua.apply_mask(fragmentHeaderOffsetAndFlags, mask)
         end
         
         if policy.headers_fragment_identification == "Keep" then
@@ -499,7 +522,6 @@ function IPv6.handleExtensionHeaders(tvb, relativeStackPosition, policy)
             --Generate 4 bytes of zeroes to replace this instead
             fragmentHeaderIdentificationAnon = shanonHelpers.generateZeroPayload(4)
         end
-        
 
         --Add fields to HeaderDataArray
         IPv6.EXTHDR.HeaderDataLength = IPv6.EXTHDR.HeaderDataLength + 1
@@ -527,11 +549,9 @@ function IPv6.handleExtensionHeaders(tvb, relativeStackPosition, policy)
             -- Add NextHeader value of the next header we processed
             if IPv6.EXTHDR.NextHeaders[i+1] ~= nil then
                 extensionHeadersPayload = extensionHeadersPayload .. IPv6.EXTHDR.NextHeaders[i+1]
-            else
-                --TODO: Pass the type of payload to the anonymize function and pass it here to assign correct next header value
-                --If we don't have a type we can process, 61 is host-internal and will be used instead 
-
-                extensionHeadersPayload = extensionHeadersPayload .. ByteArray.new("3D"):raw()
+            else             
+                local nxtValue = IPv6.getPayloadProtocolNextHeaderValue(protocolList, currentPosition)
+                extensionHeadersPayload = extensionHeadersPayload .. nxtValue
             end
             -- Add the processed header data
             extensionHeadersPayload = extensionHeadersPayload .. IPv6.EXTHDR.HeaderData[i]
@@ -613,6 +633,40 @@ function IPv6.applyAddressAnonymizationMethods(ipv6Addr, anonymizationMethods)
         i = i + 1
     end
     return tmpAnon
+end
+
+function IPv6.getPayloadProtocolNextHeaderValue(protocolList, currentPosition)
+
+    local proto = IPv6.getPayloadProtocolName(protocolList, currentPosition)
+    local nxtValue
+
+    if proto == "icmpv6" then
+        nxtValue = ByteArray.new("3A"):raw()
+    elseif proto == "tcp" then 
+        nxtValue = ByteArray.new("06"):raw()
+    elseif proto == "udp" then 
+        nxtValue = ByteArray.new("11"):raw()
+    else 
+        --If we don't have a type we can process, 3B (No next header) will be used instead
+        nxtValue = ByteArray.new("3B"):raw()
+    end
+
+    return nxtValue
+end
+
+function IPv6.getPayloadProtocolName(protocolList, currentPosition)
+    --Point to next position
+    local position = currentPosition + 1
+
+    --Reach the first protocol that doesn't start with ipv6.
+    while protocolList[position]:find("ipv6.") do
+        position = position + 1
+    end
+
+    --Get the protocol number for the protocol name for known protocols
+    local protoName = protocolList[position]
+
+    return protoName
 end
 
 --Return the module table
