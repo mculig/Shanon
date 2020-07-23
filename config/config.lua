@@ -182,5 +182,32 @@ Config.anonymizationPolicy.ipv6 = {
 
 }
 
+Config.anonymizationPolicy.udp = {
+    --UDP Source and Destination Ports
+    --Options:
+    --Keep: Keep the original source port
+    --KeepRange: Keep the original source port range, but not the specific pot number
+    --Zero: Set the port to zero
+    sourcePort = "KeepRange",
+    destinationPort = "KeepRange",
+    --UDP payload length
+    --Options: 
+    --Keep: Keep value as is
+    --Recalculate: Calculate new length
+    length = "Recalculate",
+    --UDP Checksum
+    --Options:
+    --Keep: Keep checksum as is
+    --Zero: Set the checksum to zero (UDP checksums are optional)
+    --Recalculate: Calculate a new UDP checksum
+    checksum = "Recalculate",
+    --UDP payload
+    --Options: 
+    --KeepOriginal: Keep the original payload. Discards any payload provided by any higher-layer anonymizer and keeps the UDP payload as it originally was
+    --KeepAnonymized: Keep the anonymized payload if present, if not provide a minimum payload
+    --Discard: Discards the payload completely, regardless of higher-layer anonymizers, and provides a minimum payload
+    payload = "Discard"
+}
+
 --Required. Return the variable created at the start. This must be the last line
 return Config

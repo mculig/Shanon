@@ -121,6 +121,7 @@ function IPv6.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, con
     --Check if anonymizedFrame is empty and apply a minimum payload
     if anonymizedFrame == "" then 
         --20 Bytes as a minimum payload
+        --Size is arbitrary, but not too small
         --This is expected to cause errors if it is ever necessary
         --But most likely this will only ever happen when a protocol anonymizer failed due to a missing or partial field
         anonymizedFrame = ByteArray.new("0000000000000000000000000000000000000000"):raw()
@@ -232,7 +233,7 @@ function IPv6.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, con
     --Deal with TCP, UDP and ICMPv6 checksums here
     local payloadProtoName = IPv6.getPayloadProtocolName(protocolList, currentPosition)
 
-
+    --TODO: Check in protocol policies if the checksum should be recalculated or not
     if payloadProtoName == "icmpv6" then 
         local icmpv6Checksum
         icmpv6Checksum, ipv6PacketAnon = libAnonLua.calculate_icmpv6_checksum(ipv6PacketAnon)

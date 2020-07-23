@@ -143,7 +143,6 @@ function IPv4.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, con
     end
  
     --The protocol in use isn't anonymized
-    --TODO: Should this stay this way or not?
     ipProtocolAnon = ipProcotol
 
     --Used to check if source and destination were anonymized
@@ -193,13 +192,28 @@ function IPv4.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, con
     end
 
     --Write to the anonymized frame here
-    anonymizedFrame = ipVersionIhlAnon .. ipDscpEcnAnon .. ipLengthAnon .. ipIdAnon .. ipFlagsAnon .. 
-    ipTtlAnon .. ipProtocolAnon .. ipChecksumAnon .. ipSrcAnon .. ipDstAnon .. anonymizedFrame
+    local ipv4HeaderAnon =  ipVersionIhlAnon .. ipDscpEcnAnon .. ipLengthAnon .. ipIdAnon .. ipFlagsAnon .. 
+    ipTtlAnon .. ipProtocolAnon .. ipChecksumAnon .. ipSrcAnon .. ipDstAnon
 
-    --TODO: Deal with TCP and UDP checksums here
+    local ipv4PacketAnon = ipv4HeaderAnon .. anonymizedFrame
 
-    --Return the anonymized frame
-    return anonymizedFrame
+    --Deal with TCP and UDP checksums here
+    --TODO: Check in protocol policies if the checksum should be recalculated or not
+    if ipProtocolAnon == ByteArray.new("11"):raw() then --UDP
+        print("IPv4 payload UDP")
+        local udpChecksum
+        udpChecksum, anonymizedFrame = libAnonLua.calculate_tcp_udp_checksum(ipv4PacketAnon)
+    elseif ipProtocolAnon == ByteArray.new("06"):raw() then --TCP
+        print("IPv4 payload TCP")
+        local tcpChecksum
+        tcpChecksum, anonymizedFrame = libAnonLua.calculate_tcp_udp_checksum(ipv4PacketAnon)
+    end
+
+    --Add the anonymized frame, now with checksum, to the ipv4Packet
+    ipv4PacketAnon = ipv4HeaderAnon .. anonymizedFrame
+
+    --Return the anonymized ipv4 packet
+    return ipv4PacketAnon
 end
 
 function IPv4.validatePolicy(config)

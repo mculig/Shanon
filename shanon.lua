@@ -4,6 +4,15 @@ local libAnonLua = require "libAnonLua"
 --Helper functions separated for readability
 local shanonHelpers = require "shanonHelpers"
 
+--The required version of libAnonLua
+local requiredLibAnonLuaVersion = 2
+
+--Verify the libAnonLua version before doing much else
+if libAnonLua.version ~= requiredLibAnonLuaVersion then
+        shanonHelpers.crashWithError("The current version of Shanon requires libAnonLua version " 
+        .. requiredLibAnonLuaVersion .. " but found version " .. libAnonLua.version)
+end 
+
 --Load config file
 --The config file will also be a Lua file
 --This allows for comments and documentation in the config
@@ -48,7 +57,7 @@ libAnonLua.add_interface(filesystemPath, libAnonLua.LINKTYPE_ETHERNET)
 local cryptoPANKeyFile = shanonHelpers.configGetCryptoPANKeyFile(config)
 local cryptoPANStatus = libAnonLua.init_cryptoPAN(cryptoPANKeyFile)
 if cryptoPANStatus == -1 then 
-    shanonHelpers.crashWithError("Failed to initialize CryptoPAN, anonymizers requiring CryptoPAN will fail!")
+    shanonHelpers.crashWithError("Failed to initialize CryptoPAN!")
 end
 
 --Function to tap into every frame
