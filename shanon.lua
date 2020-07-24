@@ -60,6 +60,12 @@ if cryptoPANStatus == -1 then
     shanonHelpers.crashWithError("Failed to initialize CryptoPAN!")
 end
 
+--Validate all the anonymization policies here
+for protocolName, protocol in pairs(protocols) do
+    protocol.validatePolicy(config)
+    print("Validated " .. protocolName)
+end
+
 --Function to tap into every frame
 function Tap_Frame.packet(pinfo, tvb, tapinfo)
     -- Frame info

@@ -110,6 +110,27 @@ Config.anonymizationPolicy.ipv4 = {
     }
 }
 
+--The anonymization policy for ICMP
+Config.anonymizationPolicy.icmp = {
+    --The ICMP Checksum
+    --Options:
+    --Keep: Keep the field as is
+    --Recalculate: Calculate a new, valid checksum
+    checksum = "Recalculate",
+    --ICMP Echo and Timestamp identifiers and sequence numbers
+    --Options:
+    --Keep: Keep the field as is 
+    --Zero: Set the field to zero
+    id = "Zero",
+    sequenceNumber = "Zero",
+    --ICMP Timestamp Timestamps
+    --Options:
+    --Keep: Keep the fields as they are
+    --BlackMarker: See the BlackMarker syntax example in the ethernet policy
+    timestamp_timestamp = "BlackMarker_MSB_24",
+
+}
+
 --The anonymization policy for IPv6
 Config.anonymizationPolicy.ipv6 = {
     --Different anonymization rules can be specified for different subnets
@@ -208,6 +229,8 @@ Config.anonymizationPolicy.udp = {
     --Discard: Discards the payload completely, regardless of higher-layer anonymizers, and provides a minimum payload
     payload = "Discard"
 }
+
+
 
 --Required. Return the variable created at the start. This must be the last line
 return Config

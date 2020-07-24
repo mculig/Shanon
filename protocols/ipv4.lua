@@ -36,8 +36,6 @@ IPv4.policyValidation = {
     checksum = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep", "Recalculate"}),
     address = shanonPolicyValidators.keyValidatedTableMultiValidatorFactory(shanonPolicyValidators.verifyIPv4Subnet, true, shanonPolicyValidators.isPossibleOption, {"Keep", "CryptoPAN"}, shanonPolicyValidators.validateBlackMarker, nil)
 }
---Is the anonymization policy valid. This check need only be done once
-IPv4.policyIsValid = false
 
 function IPv4.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, config)
 
@@ -45,12 +43,6 @@ function IPv4.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, con
     --That way if any weird behaviour occurs the rest of execution isn't neccessarily compromised
     local relativeStackPosition = IPv4.relativeStackPosition
     IPv4.relativeStackPosition = IPv4.relativeStackPosition - 1
-
-    --If the policy is invalid (or on 1st run) we validate the policy
-    if IPv4.policyIsValid == false then 
-        IPv4.validatePolicy(config)
-        IPv4.policyIsValid = true
-    end
 
     --Get fields
     local ipVersionIhl = shanonHelpers.getRaw(tvb, IPv4.versionIhl, relativeStackPosition)
@@ -199,7 +191,7 @@ function IPv4.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, con
 
     --Deal with TCP and UDP checksums here
     --TODO: Check in protocol policies if the checksum should be recalculated or not
-    if ipProtocolAnon == ByteArray.new("11"):raw() then --UDP
+    if ipProtocolAnon == ByteArray.new("11"):raw() and config.anonymizationPolicy.udp.checksum == "Recalculate" then --UDP
         print("IPv4 payload UDP")
         local udpChecksum
         udpChecksum, anonymizedFrame = libAnonLua.calculate_tcp_udp_checksum(ipv4PacketAnon)

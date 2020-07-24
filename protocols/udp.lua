@@ -28,21 +28,12 @@ UDP.policyValidation = {
     payload = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"KeepOriginal", "KeepAnonymized", "Discard"})
 }
 
---Is the anonymization policy valid. This check need only be done once
-UDP.policyIsValid = false
-
 function UDP.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, config)
 
     --Create a local relativeStackPosition and decrement the main
     --That way if any weird behaviour occurs the rest of execution isn't neccessarily compromised
     local relativeStackPosition = UDP.relativeStackPosition
     UDP.relativeStackPosition = UDP.relativeStackPosition - 1
-
-    --If the policy is invalid (or on 1st run) we validate the policy
-    if UDP.policyIsValid == false then 
-        UDP.validatePolicy(config)
-        UDP.policyIsValid = true
-    end
 
     --Shorthand to make life easier
     local policy = config.anonymizationPolicy.udp

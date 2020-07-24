@@ -379,5 +379,10 @@ function TCP.handleOptions(tvb, relativeStackPosition)
 
 end
 
+--Validator for TCP anonymization policy
+function TCP.validatePolicy(config)
+    --TODO: Implement
+end
+
 --Return the module table
 return TCP

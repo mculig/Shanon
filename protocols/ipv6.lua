@@ -84,21 +84,12 @@ IPv6.policyValidation =
     address = shanonPolicyValidators.keyValidatedTableMultiValidatorFactory(shanonPolicyValidators.verifyIPv6Subnet, true, shanonPolicyValidators.isPossibleOption, {"Keep", "CryptoPAN"}, shanonPolicyValidators.validateBlackMarker, nil)
 }
 
---Is the anonymization policy valid. This check need only be done once
-IPv6.policyIsValid = false
-
 function IPv6.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, config)
 
     --Create a local relativeStackPosition and decrement the main
     --That way if any weird behaviour occurs the rest of execution isn't neccessarily compromised
     local relativeStackPosition = IPv6.relativeStackPosition
     IPv6.relativeStackPosition = IPv6.relativeStackPosition - 1
-
-    --If the policy is invalid (or on 1st run) we validate the policy
-    if IPv6.policyIsValid == false then 
-        IPv6.validatePolicy(config)
-        IPv6.policyIsValid = true
-    end
 
     --Get fields
     local versionClassLabel= shanonHelpers.getRaw(tvb, IPv6.version_class_label, relativeStackPosition)
@@ -237,7 +228,10 @@ function IPv6.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, con
     if payloadProtoName == "icmpv6" then 
         local icmpv6Checksum
         icmpv6Checksum, ipv6PacketAnon = libAnonLua.calculate_icmpv6_checksum(ipv6PacketAnon)
-    elseif payloadProtoName == "tcp" or payloadProtoName == "udp" then 
+    elseif payloadProtoName == "tcp" then 
+        local checksumAnon, anonymizedFrame = libAnonLua.calculate_tcp_udp_checksum(ipv6PacketAnon)
+        ipv6PacketAnon = ipv6HeaderAndOptionsAnon .. anonymizedFrame
+    elseif payloadProtoName == "udp" and config.anonymizationPolicy.udp.checksum == "Recalculate" then 
         local checksumAnon, anonymizedFrame = libAnonLua.calculate_tcp_udp_checksum(ipv6PacketAnon)
         ipv6PacketAnon = ipv6HeaderAndOptionsAnon .. anonymizedFrame
     end

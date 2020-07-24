@@ -508,5 +508,10 @@ function ICMPv6.handleOptions(tvb, icmpv6Start, icmpv6End)
     return optionPayload
 end
 
+--Validator for ICMPv6 anonymization policy
+function ICMPv6.validatePolicy(config)
+    --TODO: Implement
+end
+
 --Return the module table
 return ICMPv6

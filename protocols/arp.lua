@@ -27,19 +27,8 @@ ARP.protoAddrSrc = Field.new("arp.src.proto_ipv4")
 ARP.hwAddrDst = Field.new("arp.dst.hw_mac")
 ARP.protoAddrDst = Field.new("arp.dst.proto_ipv4")
 
---Is the anonymization policy valid
-ARP.policyIsValid = false
-
 function ARP.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, config)
 
-    --Validate the policy
-    --ARP uses the same policies as Ethernet and IPv4 so we just import the Ethernet policy and validate it
-    --This assumes we're using ARP with Ethernet and IPv4
-    if ARP.policyIsValid == false then 
-        ethernet.validatePolicy(config)
-        ipv4.validatePolicy(config)
-        ARP.policyIsValid = true
-    end
 
     policy = {}
     policy.eth = config.anonymizationPolicy.ethernet
@@ -150,6 +139,11 @@ function ARP.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, conf
     anonymizedFrame = anonymizedARP .. anonymizedFrame
 
     return anonymizedFrame
+end
+
+--Validator for ARP is empty because ARP relies on Ethernet and IPv4 validators
+function ARP.validatePolicy(config)
+    --Do nothing
 end
 
 --Return the module table

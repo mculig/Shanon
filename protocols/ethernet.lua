@@ -41,21 +41,12 @@ Ethernet.policyValidation =
 --A minimum Ethernet payload length
 Ethernet.minimumPayloadLength = 46
 
---Is the anonymization policy valid. This check need only be done once
-Ethernet.policyIsValid = false
-
 function Ethernet.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, config)
 
     --Create a local relativeStackPosition and decrement the main
     --That way if any weird behaviour occurs the rest of execution isn't neccessarily compromised
     local relativeStackPosition = Ethernet.relativeStackPosition
     Ethernet.relativeStackPosition = Ethernet.relativeStackPosition - 1
-
-    --If the policy is invalid (or on 1st run) we validate the policy
-    if Ethernet.policyIsValid == false then 
-        Ethernet.validatePolicy(config)
-        Ethernet.policyIsValid = true
-    end
 
     --Create local policy simply to avoid having to type config.anonymizationPolicy.ethernet all the time
     local policy = config.anonymizationPolicy.ethernet

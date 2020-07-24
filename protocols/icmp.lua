@@ -196,5 +196,10 @@ function ICMP.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, con
     return icmpMessage
 end
 
+--Validator for ICMP anonymization policy
+function ICMP.validatePolicy(config)
+    --TODO: Implement
+end
+
 --Return the module table
 return ICMP
