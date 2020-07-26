@@ -127,8 +127,7 @@ Config.anonymizationPolicy.icmp = {
     --Options:
     --Keep: Keep the fields as they are
     --BlackMarker: See the BlackMarker syntax example in the ethernet policy
-    timestamp_timestamp = "BlackMarker_MSB_24",
-
+    timestamp = "BlackMarker_MSB_24"
 }
 
 --The anonymization policy for IPv6
@@ -230,6 +229,31 @@ Config.anonymizationPolicy.udp = {
     payload = "Discard"
 }
 
+Config.anonymizationPolicy.tcp = {
+    --TCP Source and Destination Ports
+    --The options are the same as for UDP
+    sourcePort = "KeepRange",
+    destinationPort = "KeepRange",
+    --TCP Urgent Flag.
+    --Options:
+    --Keep: Keep this flag
+    --Zero: Set this flag to zero
+    flagUrgent = "Zero",
+    --TCP Checksum
+    --Same options as UDP checksum
+    checksum = "Recalculate",    
+    --TCP Urgent Pointer
+    --Options:
+    --Keep: Keep the Urgent Pointer value if it was set
+    --Zero: Set the Urgent Pointer to zero
+    urgentPointer = "Zero",
+    --TCP Timestamp Option
+    --Options:
+    --Discard: Discard timestamp options if present
+    --Keep: Keep the timestamp as is
+    --BlackMarker: See the BlackMarker syntax example in the ethernet policy 
+    optTimestamp = "BlackMarker_MSB_16"
+}
 
 
 --Required. Return the variable created at the start. This must be the last line
