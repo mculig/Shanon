@@ -5,7 +5,7 @@ local libAnonLua = require "libAnonLua"
 local shanonHelpers = require "shanonHelpers"
 
 --The required version of libAnonLua
-local requiredLibAnonLuaVersion = 2
+local requiredLibAnonLuaVersion = 3
 
 --Verify the libAnonLua version before doing much else
 if libAnonLua.version ~= requiredLibAnonLuaVersion then

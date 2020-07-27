@@ -29,7 +29,6 @@ IPv4.dst = Field.new("ip.dst") -- Destination Address
 IPv4.policyValidation = {
     dscp = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep", "Zero"}),
     ecn = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep", "Zero"}),
-    length = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep", "Recalculate"}),
     id = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep"}, shanonPolicyValidators.validateBlackMarker, nil),
     flagsAndOffset = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep"}, shanonPolicyValidators.validateBlackMarker, nil),
     ttl = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep"}, shanonPolicyValidators.validateSetValue, nil),
@@ -69,9 +68,7 @@ function IPv4.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, con
     local ipDstAnon
 
     --Anonymize stuff here
-
-    --TODO: Check if anonymizedFrame is empty and apply a minimum payload
-
+    --Local policy shorthand so we don't have to type a long policy table name every time.
     local policy
 
     --Check if we have a policy for subnets and if our source or destination addresses match any of the subnets specified in the policy
@@ -90,7 +87,6 @@ function IPv4.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, con
     end
 
     --Version/IHL is set to a default 45
-    --TODO: Log mismatched values
     ipVersionIhlAnon = ByteArray.new("45"):raw()
 
     --Apply masks to DSCP/ECN depending on the chosen policy options
@@ -108,9 +104,12 @@ function IPv4.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, con
         ipDscpEcnAnon = libAnonLua.apply_mask(ipDscpEcn, mask)
     end
 
-    if policy.length == "Keep" then
-        ipLengthAnon = ipLengh
-    else      
+    --If the anonymized frame is empty, get the length value and generate a zero payload of same length
+    --Otherwise recalculate the length to match
+    if anonymizedFrame == "" then
+        local ipPayloadLength = shanonHelpers.getValue(IP.totalLength) - 20
+        anonymizedFrame = shanonHelpers.generateZeroPayload(ipPayloadLength)
+    else
         ipLengthAnon = shanonHelpers.getLengthAsBytes(anonymizedFrame, 2, 20)
     end
     
@@ -191,6 +190,7 @@ function IPv4.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, con
 
     --Deal with TCP and UDP checksums here
     --TODO: Check in protocol policies if the checksum should be recalculated or not
+    --TODO: Remove prints
     if ipProtocolAnon == ByteArray.new("11"):raw() and config.anonymizationPolicy.udp.checksum == "Recalculate" then --UDP
         print("IPv4 payload UDP")
         local udpChecksum
@@ -226,7 +226,7 @@ function IPv4.validatePolicy(config)
         --The only exception here is the address which needs some specific validation code
         for option, validator in pairs(IPv4.policyValidation) do
             if not validator(config.anonymizationPolicy.ipv4.default[option]) then
-                shanonHelpers.crashMissingPolicy("IPv4", option)
+                shanonHelpers.crashMissingOption("IPv4", option)
             end
         end
     end

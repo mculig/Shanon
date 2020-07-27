@@ -19,6 +19,15 @@ function M.getRaw(tvb, fieldExtractor, relativeStackPosition)
 	return tvb:range(fieldInfo[relativeStackPosition].offset,fieldInfo[relativeStackPosition].len):bytes():raw()
 end
 
+--Helper to get the value of a field
+function M.getValue(fieldExtractor, relativeStackPosition)
+	local fieldInfo = { fieldExtractor() }
+	if fieldInfo[relativeStackPosition] == nil then
+		error("Error getting field " .. fieldExtractor.name .. " in the " .. relativeStackPosition .. ". instance of this protocol in the chain.")
+	end
+	return fieldInfo[relativeStackPosition].value
+end
+
 --Get length bytes following a particular field
 function M.getBytesAfterField(tvb, fieldExtractor, relativeStackPosition, length)
 	local fieldInfo = { fieldExtractor() }

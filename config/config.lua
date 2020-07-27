@@ -28,7 +28,7 @@ Config.anonymizationPolicy.ethernet = {
     --Options:
     --Skip: Do not include a FCS with the captured frame
     --Recalculate: Calculate a new, correct FCS
-    fcs = "Recalculate",
+    fcs = "Skip",
     --MAC addresses
     --Options:
     --Keep: Addresses are left unchanged
@@ -43,8 +43,10 @@ Config.anonymizationPolicy.ethernet = {
     length = "Recalculate"
 }
 
+--There is no entry for ARP since ARP relies on the IPv4 and Ethernet policies for anonymization
+
 --The anonymization policy for IPv4
---The address anonymization method used here is also used to anonymize IPv4 addresses in ARP
+--The address anonymization method used here is also used to anonymize IPv4 addresses in ARP and ICMP Redirect Gateway Addresses
 Config.anonymizationPolicy.ipv4 = {
     --Different anonymization rules can be specified for different subnets
     --These are optional, but if they exist they will be validated
@@ -69,11 +71,6 @@ Config.anonymizationPolicy.ipv4 = {
         --Keep: Keep the field as is
         --Zero: Set this field to zeroes
         ecn = "Zero",
-        --The length of the payload
-        --Options:
-        --Keep: Keep the field as is
-        --Recalculate: Calculate new length
-        length = "Recalculate",
         --The IPv4 ID field
         --Options:
         --Keep: Keep the field as is
@@ -111,6 +108,7 @@ Config.anonymizationPolicy.ipv4 = {
 }
 
 --The anonymization policy for ICMP
+--ICMP Redirect Gateway Addresses are anonymized using the IPv4 anonymization policy rules
 Config.anonymizationPolicy.icmp = {
     --The ICMP Checksum
     --Options:
@@ -123,11 +121,21 @@ Config.anonymizationPolicy.icmp = {
     --Zero: Set the field to zero
     id = "Zero",
     sequenceNumber = "Zero",
+    --Parameter Problem Pointer
+    --Options:
+    --Keep: Keep the pointer unchanged
+    --Zero: Set the pointer to zero
+    ppPointer = "Zero",
     --ICMP Timestamp Timestamps
     --Options:
     --Keep: Keep the fields as they are
     --BlackMarker: See the BlackMarker syntax example in the ethernet policy
-    timestamp = "BlackMarker_MSB_24"
+    timestamp = "BlackMarker_MSB_24",
+    --ICMP data payload
+    --Options
+    --Keep: Keep the data payload intact
+    --TODO: Figure this out
+    data = ""
 }
 
 --The anonymization policy for IPv6
@@ -214,7 +222,7 @@ Config.anonymizationPolicy.udp = {
     --Options: 
     --Keep: Keep value as is
     --Recalculate: Calculate new length
-    length = "Recalculate",
+    length = "Keep",
     --UDP Checksum
     --Options:
     --Keep: Keep checksum as is
@@ -224,8 +232,9 @@ Config.anonymizationPolicy.udp = {
     --UDP payload
     --Options: 
     --KeepOriginal: Keep the original payload. Discards any payload provided by any higher-layer anonymizer and keeps the UDP payload as it originally was
-    --KeepAnonymized: Keep the anonymized payload if present, if not provide a minimum payload
-    --Discard: Discards the payload completely, regardless of higher-layer anonymizers, and provides a minimum payload
+    --KeepAnonymized: Keep the anonymized payload if present, if not provide a minimum payload (length="Recalculate") or generate a zero payload (lenght="Keep")
+    --Discard: Discards the payload completely, regardless of higher-layer anonymizers, and provides a generated zero payload the length of which depends on
+    --the length option. If the original length needs to be preserved an appropriate-length payload will be generaed
     payload = "Discard"
 }
 
@@ -240,7 +249,9 @@ Config.anonymizationPolicy.tcp = {
     --Zero: Set this flag to zero
     flagUrgent = "Zero",
     --TCP Checksum
-    --Same options as UDP checksum
+    --Options:
+    --Keep: Keep checksum as is
+    --Recalculate: Calculate a new UDP checksum
     checksum = "Recalculate",    
     --TCP Urgent Pointer
     --Options:

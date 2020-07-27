@@ -3,6 +3,7 @@
 --Our libraries
 local libAnonLua = require "libAnonLua"
 local shanonHelpers = require "shanonHelpers"
+local shanonPolicyValidators = require "shanonPolicyValidators"
 
 --Module table
 local ICMP={}
@@ -29,6 +30,15 @@ ICMP.originateTimestamp = Field.new("icmp.originate_timestamp")
 ICMP.receiveTimestamp = Field.new("icmp.receive_timestamp")
 ICMP.transmitTimestamp = Field.new("icmp.transmit_timestamp")
 
+
+ICMP.policyValidation = {
+    checksum = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep", "Recalculate"}),
+    id = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep", "Zero"}),
+    sequenceNumber = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep", "Zero"}),
+    ppPointer = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep", "Zero"}),
+    timestamp = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep"}, shanonPolicyValidators.validateBlackMarker, nil)
+}
+
 function ICMP.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, config)
 
     --Create a local relativeStackPosition and decrement the main
@@ -47,8 +57,13 @@ function ICMP.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, con
     local icmpChecksumAnon
 
     --Anonymize stuff here
+
+    local policy = config.anonymizationPolicy.icmp
+
+    --Nothing is done to the Type and Code of ICMP messages
     icmpTypeAnon = icmpType
     icmpCodeAnon = icmpCode
+    --The checksum is recalculated later
     icmpChecksumAnon = icmpChecksum
 
     --Add anonymized header fields to ICMP message
@@ -86,8 +101,19 @@ function ICMP.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, con
         local icmpData = shanonHelpers.getBytesAfterOnlyOneWithinBoundaries(tvb, ICMP.sequenceNumber,  icmpStart, icmpEnd)
 
         --Anonymize fields 
-        local icmpIdAnon = icmpId
+
+        local icmpIdAnon
         local icmpSeqAnon = icmpSeq
+
+        if policy.id == "Keep" then 
+            icmpIdAnon = icmpId
+        else 
+            icmpIdAnon = ByteArray.new("0000"):raw()
+        end
+
+
+        
+        
         local icmpDataAnon = icmpData
 
         --Add anonymized fields to ICMP message
@@ -198,7 +224,19 @@ end
 
 --Validator for ICMP anonymization policy
 function ICMP.validatePolicy(config)
-    --TODO: Implement
+    --Check if the config has an anonymizationPolicy
+    shanonPolicyValidators.verifyPolicyExists(config)
+
+    --Verify the policy exists and its contents
+    if config.anonymizationPolicy.icmp == nil then
+        shanonHelpers.crashMissingPolicy("ICMP")
+    else
+        for option, validator in pairs(ICMP.policyValidation) do
+            if not validator(config.anonymizationPolicy.icmp[option]) then
+                shanonHelpers.crashMissingOption("ICMP", option)
+            end
+        end
+    end
 end
 
 --Return the module table

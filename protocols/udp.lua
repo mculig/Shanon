@@ -69,20 +69,42 @@ function UDP.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, conf
     else
         udpDstAnon = ByteArray.new("0000"):raw()
     end
-
-    --Check if anonymizedFrame is empty and apply a minimum payload
-    if anonymizedFrame == "" then 
-        --20 Bytes as a minimum payload
-        --This is arbitrary, but not too small
-        anonymizedFrame = ByteArray.new("0000000000000000000000000000000000000000"):raw()
-    end
     
+    --Handling the payload
+    if policy.payload == "KeepOriginal" then
+        local udpPayloadLength = shanonHelpers.getValue(UDP.length, relativeStackPosition) - 8
+        --Retrieve the original payload
+        anonymizedFrame = shanonHelpers.getaBytesAfterField(tvb, UDP.checksum, relativeStackPosition, udpPayloadLength)
+    elseif policy.payload == "KeepAnonymized" then 
+        if anonymizedFrame == "" then 
+            --If the anonymized frame isn't present, we generate a minimum payload OR a length-specific payload depending on the length option
+            if policy.length == "Keep" then 
+                local udpPayloadLength = shanonHelpers.getValue(UDP.length, relativeStackPosition) - 8
+                anonymizedFrame = shanonHelpers.generateZeroPayload(udpPayloadLength)
+            else 
+                --Generate a minimum zero payload of 20 bytes
+                anonymizedFrame = shanonHelpers.generateZeroPayload(20)
+            end
+        end
+    else
+        --Discard
+        if policy.length == "Keep" then 
+            local udpPayloadLength = shanonHelpers.getValue(UDP.length, relativeStackPosition) - 8
+            anonymizedFrame = shanonHelpers.generateZeroPayload(udpPayloadLength)
+        else 
+            --Generate a minimum zero payload of 20 bytes
+            anonymizedFrame = shanonHelpers.generateZeroPayload(20)
+        end
+    end
+
+    --Handling the length
     if policy.length == "Keep" then 
         udpLengthAnon = udpLength
     else
         udpLengthAnon = shanonHelpers.getLengthAsBytes(anonymizedFrame, 2, 8)
     end
 
+    --Handling the checksum
     if policy.checksum == "Keep" then 
         udpChecksumAnon = udpChecksum
     else 
@@ -91,7 +113,8 @@ function UDP.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, conf
     end    
 
     --Write to the anonymized frame here
-    return udpSrcAnon .. udpDstAnon .. udpLengthAnon .. udpChecksumAnon ..anonymizedFrame
+    local udpDatagram = udpSrcAnon .. udpDstAnon .. udpLengthAnon .. udpChecksumAnon .. anonymizedFrame
+    return udpDatagram
 end
 
 function UDP.validatePolicy(config)
