@@ -130,12 +130,7 @@ Config.anonymizationPolicy.icmp = {
     --Options:
     --Keep: Keep the fields as they are
     --BlackMarker: See the BlackMarker syntax example in the ethernet policy
-    timestamp = "BlackMarker_MSB_24",
-    --ICMP data payload
-    --Options
-    --Keep: Keep the data payload intact
-    --TODO: Figure this out
-    data = ""
+    timestamp = "BlackMarker_MSB_24"
 }
 
 --The anonymization policy for IPv6

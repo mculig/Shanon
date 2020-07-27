@@ -4,6 +4,7 @@
 local libAnonLua = require "libAnonLua"
 local shanonHelpers = require "shanonHelpers"
 local shanonPolicyValidators = require "shanonPolicyValidators"
+local ipv4 = require "protocols.ipv4"
 
 --Module table
 local ICMP={}
@@ -100,21 +101,34 @@ function ICMP.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, con
         local icmpSeq = shanonHelpers.getOnlyOneWithinBoundariesRaw(tvb, ICMP.sequenceNumber, icmpStart, icmpEnd)
         local icmpData = shanonHelpers.getBytesAfterOnlyOneWithinBoundaries(tvb, ICMP.sequenceNumber,  icmpStart, icmpEnd)
 
+        --Anonymized fields
+        local icmpIdAnon
+        local icmpSeqAnon
+        local icmpDataAnon
+
         --Anonymize fields 
 
-        local icmpIdAnon
-        local icmpSeqAnon = icmpSeq
-
+        --Id and sequence number
         if policy.id == "Keep" then 
             icmpIdAnon = icmpId
         else 
             icmpIdAnon = ByteArray.new("0000"):raw()
         end
 
+        if policy.sequenceNumber == "Keep" then 
+            icmpSeqAnon = icmpSeq
+        else 
+            icmpSeqAnon = ByteArray.new("0000"):raw()
+        end
+        
+        --Data payload       
 
-        
-        
-        local icmpDataAnon = icmpData
+        if anonymizedFrame == "" then 
+            --If we got nothing, create an empty data frame of length equal to ICMP data
+            icmpDataAnon = shanonHelpers.generateZeroPayload(icmpData:len())
+        else 
+            icmoDataAnon = anonymizedFrame
+        end
 
         --Add anonymized fields to ICMP message
         icmpMessage = icmpMessage .. icmpIdAnon .. icmpSeqAnon .. icmpDataAnon
@@ -133,9 +147,22 @@ function ICMP.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, con
         local offset = offset + 4
         local icmpData = shanonHelpers.getRestFromOffset(tvb, offset)
 
+        --Anonymized fields
+        local icmpUnusedAnon
+        local icmpDataAnon
+
         --Anonymize fields
-        local icmpUnusedAnon = icmpUnused
-        local icmpDataAnon = icmpData
+        
+        --Unused field, set bytes to 0
+        icmpUnusedAnon = ByteArray.new("00000000"):raw()
+
+        --Data payload   
+        if anonymizedFrame == "" then 
+            --If we got nothing, create an empty data frame of length equal to ICMP data
+            icmpDataAnon = shanonHelpers.generateZeroPayload(icmpData:len())
+        else 
+            icmoDataAnon = anonymizedFrame
+        end
 
         --Add anonymized fields to ICMP message
         icmpMessage = icmpMessage .. icmpUnusedAnon .. icmpDataAnon
@@ -146,9 +173,56 @@ function ICMP.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, con
         local icmpRedirectGateway = shanonHelpers.getOnlyOneWithinBoundariesRaw(tvb, ICMP.redirectGateway,  icmpStart, icmpEnd)
         local icmpData = shanonHelpers.getBytesAfterOnlyOneWithinBoundaries(tvb, ICMP.redirectGateway,  icmpStart, icmpEnd)
 
+        --Anonymized fields
+        local icmpRedirectGatewayAnon 
+        local icmpDataAnon
+
         --Anonymize fields
-        local icmpRedirectGatewayAnon = icmpRedirectGateway
-        local icmpDataAnon = icmpData
+
+        --Redirect gateway. For this we use the IPv4 rules
+
+        local ipv4Policy
+        
+        --Test if our redirect gateway is in any of the subnets with its own policy
+        if config.anonymizationPolicy.ipv4.subnets ~= nil then 
+            for subnet, subnetPolicy in pairs(config.anonymizationPolicy.ipv4.subnets) do
+                if libAnonLua.ip_in_subnet(icmpRedirectGateway, subnet) then 
+                    ipv4Policy = subnetPolicy
+                    break
+                end
+            end
+        end
+
+        --If we didn't find a specific policy, use the default
+        if ipv4Policy == nil then 
+            ipv4Policy = config.anonymizationPolicy.ipv4.default
+        end     
+
+        --Apply the correct anonymization to the gateway
+        for subnet, anonymizationMethods in pairs(ipv4Policy.address) do 
+            if subnet == "default" then 
+                --Skip default here. If neither address is in any of the subnets then we'll default later
+            else
+                if libAnonLua.ip_in_subnet(icmpRedirectGateway, subnet) then 
+                    icmpRedirectGatewayAnon = ipv4.applyAnonymizationMethods(icmpRedirectGateway, anonymizationMethods)
+                    break;
+                end
+            end
+        end
+
+        --If we didn't find a matching subnet in the last step this will be nil
+        if icmpRedirectGatewayAnon == nil then 
+            icmpRedirectGatewayAnon = ipv4.applyAnonymizationMethods(icmpRedirectGateway, ipv4Policy.address.default)
+        end
+
+        --Data payload
+
+        if anonymizedFrame == "" then 
+            --If we got nothing, create an empty data frame of length equal to ICMP data
+            icmpDataAnon = shanonHelpers.generateZeroPayload(icmpData:len())
+        else 
+            icmoDataAnon = anonymizedFrame
+        end
 
         --Add anonymized fields to ICMP message
         icmpMessage = icmpMessage .. icmpRedirectGatewayAnon .. icmpDataAnon
@@ -167,9 +241,23 @@ function ICMP.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, con
         local icmpDataAnon 
 
         --Anonymize fields
-        icmpPointerAnon = icmpPointer
-        icmpUnusedAnon = icmpUnused
-        icmpDataAnon = icmpData
+
+        if policy.ppPointer == "Keep" then 
+            icmpPointerAnon = icmpPointer
+        else 
+            icmpPointerAnon = ByteArray.new("00"):raw()
+        end
+
+        icmpUnusedAnon = ByteArray.new("000000"):raw()
+
+        --Data payload
+
+        if anonymizedFrame == "" then 
+            --If we got nothing, create an empty data frame of length equal to ICMP data
+            icmpDataAnon = shanonHelpers.generateZeroPayload(icmpData:len())
+        else 
+            icmoDataAnon = anonymizedFrame
+        end
 
         --Add anonymized fields to ICMP message
         icmpMessage = icmpMessage .. icmpPointerAnon .. icmpUnusedAnon .. icmpDataAnon
@@ -194,11 +282,29 @@ function ICMP.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, con
         local icmpTransmitTimestampAnon
 
         --Anonymize fields
-        icmpIdentifierAnon = icmpIdentifier
-        icmpSeqAnon = icmpSeq
-        icmpOriginateTimestampAnon = icmpOriginateTimestamp
-        icmpReceiveTimestampAnon = icmpReceiveTimestamp
-        icmpTransmitTimestampAnon = icmpTransmitTimestamp
+
+        if policy.id == "Keep" then 
+            icmpIdentifierAnon = icmpIdentifier
+        else 
+            icmpIdentifierAnon = ByteArray.new("0000"):raw()
+        end
+
+        if policy.sequenceNumber == "Keep" then 
+            icmpSeqAnon = icmpSeq
+        else 
+            icmpSeqAnon = ByteArray.new("0000"):raw()
+        end
+
+        if policy.timestamp == "Keep" then 
+            icmpOriginateTimestampAnon = icmpOriginateTimestamp
+            icmpReceiveTimestampAnon = icmpReceiveTimestamp
+            icmpTransmitTimestampAnon = icmpTransmitTimestamp
+        else
+            local blackMarkerDirection, blackMarkerLength = shanonHelpers.getBlackMarkerValues(policy.timestamp)
+            icmpOriginateTimestampAnon = libAnonLua.black_marker(icmpOriginateTimestamp, blackMarkerLength, blackMarkerDirection)
+            icmpReceiveTimestampAnon = libAnonLua.black_marker(icmpReceiveTimestamp, blackMarkerLength, blackMarkerDirection)
+            icmpTransmitTimestampAnon = libAnonLua.black_marker(icmpTransmitTimestamp, blackMarkerLength, blackMarkerDirection)
+        end
 
         --Add anonymized fields to icmp message
         icmpMessage = icmpMessage .. icmpIdentifierAnon .. icmpSeqAnon .. icmpOriginateTimestampAnon
@@ -216,6 +322,13 @@ function ICMP.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, con
 
         --Add anonymized fields to icmp message
         icmpMessage = icmpMessage .. icmpDataAnon
+    end
+
+    if policy.checksum == "Keep" then 
+        --Do nothing, we already inserted the old checksum
+    else 
+        local checksum
+        checksum, icmpMessage = libAnonLua.calculate_icmp_checksum(icmpMessage)
     end
 
     --Return the anonymization result
