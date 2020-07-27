@@ -71,7 +71,6 @@ IPv6.policyValidation =
 {
     trafficClass = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep", "Zero"}), 
     flowLabel = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep", "Zero"}),
-    length = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep", "Recalculate"}),
     hopLimit = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep"}, shanonPolicyValidators.validateSetValue, nil),
     headers_hopByHop_keep = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"True", "False"}),
     headers_hopByHop_payload = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Zero", "Minimum", "Keep"}),
@@ -108,16 +107,6 @@ function IPv6.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, con
     local dstAnon
 
     --Anonymize stuff here
-
-    --Check if anonymizedFrame is empty and apply a minimum payload
-    if anonymizedFrame == "" then 
-        --20 Bytes as a minimum payload
-        --Size is arbitrary, but not too small
-        --This is expected to cause errors if it is ever necessary
-        --But most likely this will only ever happen when a protocol anonymizer failed due to a missing or partial field
-        anonymizedFrame = ByteArray.new("0000000000000000000000000000000000000000"):raw()
-    end
-
     local policy
 
     --Check if we have a policy for subnets and if our source or destination addresses match and of the subnets specified in the policy
@@ -210,10 +199,15 @@ function IPv6.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, con
         extensionHeaderData = ""
     end
 
-    --Recalculate payload length
-    if policy.length == "Keep" then 
+     --If the anonymized frame is empty, get the length value and generate a zero payload of same length
+    --Otherwise recalculate the length to match
+    if anonymizedFrame == "" then 
+        --Generate a payload that is equal to the payload length minus any extension headers we processed and put it in the anonymized frame
+        local ipv6PayloadLength = shanonHelpers.getValue(IPv6.payload_length) - extensionHeaderData:len()
+        anonymizedFrame = shanonHelpers.generateZeroPayload(ipv6PayloadLength)
         payloadLengthAnon = payloadLength
     else 
+        --Calculate the length based on the anonymized frame we received
         payloadLengthAnon = shanonHelpers.getLengthAsBytes(extensionHeaderData .. anonymizedFrame, 2)
     end
 

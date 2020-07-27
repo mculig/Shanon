@@ -160,11 +160,6 @@ Config.anonymizationPolicy.ipv6 = {
         --Keep: Keep the field as is
         --Zero: Set the field to all zeroes
         flowLabel = "Zero",
-        --IPv6 payload length
-        --Options:
-        --Keep: Keep the field as is
-        --Recalculate: Calculate new length
-        length = "Recalculate",
         --IPv6 Hop Limit (TTL)
         --Options:
         --Keep: Keep value as is
