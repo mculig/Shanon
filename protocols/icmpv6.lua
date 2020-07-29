@@ -3,6 +3,8 @@
 --Our libraries
 local libAnonLua = require "libAnonLua"
 local shanonHelpers = require "shanonHelpers"
+local shanonPolicyValidators = require "shanonPolicyValidators"
+local ipv6 = require "protocols.ipv6"
 
 --Module table
 local ICMPv6={}
@@ -74,6 +76,31 @@ ICMPv6.OPT.Redirect = {}
 --6 bytes are reserved and are fetched before this field
 ICMPv6.OPT.Redirect.RedirectedPacket = Field.new("icmpv6.opt.redirected_packet")
 
+ICMPv6.policyValidation = {
+    checksum = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep", "Recalculate"}),
+    echoId = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep", "Zero"}),
+    echoSequenceNumber = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep", "Zero"}),
+    ppPointer = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep", "Zero"}),
+    ptbMtu = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep", "Zero"}, shanonPolicyValidators.validateSetValue, {1280, 200000})
+}
+
+ICMPv6.NDP.policyValidation = {
+    raHopLimit = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep"}, shanonPolicyValidators.validateSetValue, {1, 255}),
+    raManagedFlag = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep", "Zero"}),
+    raOtherFlag = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep", "Zero"}),
+    raLifetime = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep"}, shanonPolicyValidators.validateSetValue, {0, 9000}),
+    raReachableTime = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep"}, shanonPolicyValidators.validateSetValue, {0,3600000}),
+    raRetransTime = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep"}, shanonPolicyValidators.validateSetValue, {0,3600000}),
+    naRouterFlag = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep", "Zero"}),
+    naOverrideFlag = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep", "Zero"}),
+    optPrefixPrefixLength = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep"}, shanonPolicyValidators.validateSetValue, {0, 128}),
+    optPrefixOnLinkFlag = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep", "Zero"}),
+    optPrefixSLAACFlag = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep", "Zero"}),
+    optPrefixValidLifetime = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep", "Infinity"}, shanonPolicyValidators.validateSetValue, {100,259200}), 
+    optPrefixPreferredLifetime = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep", "Infinity"}, shanonPolicyValidators.validateSetValue, {100,259200}),
+    optMtuMtu = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep", "Zero"}, shanonPolicyValidators.validateSetValue, {1280, 200000})
+}
+
 
 function ICMPv6.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, config)
 
@@ -81,6 +108,11 @@ function ICMPv6.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, c
     --That way if any weird behaviour occurs the rest of execution isn't neccessarily compromised
     local relativeStackPosition = ICMPv6.relativeStackPosition
     ICMPv6.relativeStackPosition = ICMPv6.relativeStackPosition - 1
+
+    --Get policies. These will be used throughout the anonymizer
+    policyICMPv6 = config.anonymizationPolicy.icmpv6
+    policyNDP = config.anonymizationPolicy.ndp
+    policyIPv6 = config.anonymizationPolicy.ipv6
     
     --Get fields
     local icmpType = shanonHelpers.getRaw(tvb, ICMPv6.type, relativeStackPosition)
@@ -93,6 +125,8 @@ function ICMPv6.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, c
     local icmpChecksumAnon
 
     --Anonymize stuff here
+    --The code and type aren't anonymized. 
+    --The checksum is calculated by the IPv6 anonymizer due to requiring a pseudo-header which can't be constructed before IPv6 is anonymized
     icmpTypeAnon = icmpType
     icmpCodeAnon = icmpCode
     icmpChecksumAnon = icmpChecksum
@@ -137,10 +171,34 @@ function ICMPv6.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, c
         local icmpSeq = shanonHelpers.getOnlyOneWithinBoundariesRaw(tvb, ICMPv6.sequenceNumber, icmpv6Start, icmpv6End)
         local icmpData = shanonHelpers.getBytesAfterOnlyOneWithinBoundaries(tvb, ICMPv6.sequenceNumber, icmpv6Start, icmpv6End)
 
+        --Anonymized fields
+        local icmpIdAnon
+        local icmpSeqAnon
+        local icmpDataAnon
+
         --Anonymize fields 
-        local icmpIdAnon = icmpId
-        local icmpSeqAnon = icmpSeq
-        local icmpDataAnon = icmpData
+
+        --Echo ID
+        if policyICMPv6.echoId == "Keep" then 
+            icmpIdAnon = icmpId
+        else 
+            icmpIdAnon = ByteArray.new("0000"):raw()
+        end
+
+        --Echo Sequence Number
+        if policyICMPv6.echoSequenceNumber == "Keep" then 
+            icmpSeqAnon = icmpSeq
+        else 
+            icmpSeqAnon = ByteArray.new("0000"):raw()
+        end
+
+        --ICMP data
+        if anonymizedFrame == "" then 
+            --If we got nothing, create an empty data frame of length equal to ICMP data
+            icmpDataAnon = shanonHelpers.generateZeroPayload(icmpData:len())
+        else 
+            icmpDataAnon = anonymizedFrame
+        end
 
         --Add anonymized fields to ICMP message
         icmpMessage = icmpMessage .. icmpIdAnon .. icmpSeqAnon .. icmpDataAnon
@@ -160,9 +218,20 @@ function ICMPv6.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, c
         local offset = offset + 4
         local icmpData = shanonHelpers.getRestFromOffset(tvb, offset)
         
+        --Anonymized fields
+        local icmpUnusedAnon
+        local icmpDataAnon
+
         --Anonymize fields
-        local icmpUnusedAnon = icmpUnused
-        local icmpDataAnon = icmpData
+        local icmpUnusedAnon = ByteArray.new("00000000"):raw()
+        
+        --ICMP data
+        if anonymizedFrame == "" then 
+            --If we got nothing, create an empty data frame of length equal to ICMP data
+            icmpDataAnon = shanonHelpers.generateZeroPayload(icmpData:len())
+        else 
+            icmpDataAnon = anonymizedFrame
+        end
 
         --Add anonymized fields to ICMP message
         icmpMessage = icmpMessage .. icmpUnusedAnon .. icmpDataAnon
@@ -179,8 +248,21 @@ function ICMPv6.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, c
         local icmpDataAnon 
 
         --Anonymize fields
-        icmpPointerAnon = icmpPointer
-        icmpDataAnon = icmpData
+        
+        --Pointer
+        if policyICMPv6.ppPointer == "Keep" then 
+            icmpPointerAnon = icmpPointer
+        else 
+            icmpPointerAnon = ByteArray.new("00000000"):raw()
+        end
+        
+        --ICMP data
+        if anonymizedFrame == "" then 
+            --If we got nothing, create an empty data frame of length equal to ICMP data
+            icmpDataAnon = shanonHelpers.generateZeroPayload(icmpData:len())
+        else 
+            icmpDataAnon = anonymizedFrame
+        end
 
         --Add anonymized fields to ICMP message
         icmpMessage = icmpMessage .. icmpPointerAnon .. icmpDataAnon
@@ -196,8 +278,22 @@ function ICMPv6.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, c
         local icmpDataAnon
 
         --Anonymize fields
-        icmpMTUAnon = icmpMTU
-        icmpDataAnon = icmpData
+
+        if policyICMPv6.ptbMtu == "Keep" then 
+            icmpMTUAnon = icmpMTU
+        elseif policyICMPv6.ptbMtu == "Zero" then 
+            icmpMTUAnon = ByteArray.new("00000000"):raw()
+        else 
+            icmpMTUAnon = shanonHelpers.getSetValueBytes(policyICMPv6.ptbMtu,4)
+        end
+        
+        --ICMP data
+        if anonymizedFrame == "" then 
+            --If we got nothing, create an empty data frame of length equal to ICMP data
+            icmpDataAnon = shanonHelpers.generateZeroPayload(icmpData:len())
+        else 
+            icmpDataAnon = anonymizedFrame
+        end
 
         --Add anonymized fields to ICMP message
         icmpMessage = icmpMessage .. icmpMTUAnon .. icmpDataAnon
@@ -210,7 +306,7 @@ function ICMPv6.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, c
         local ndpRsReservedAnon
 
         --Anonymize fields
-        ndpRsReservedAnon = ndpRsReserved
+        ndpRsReservedAnon = ByteArray.new("00000000"):raw()
 
         --Add anonymized fields to ICMP message
         icmpMessage = icmpMessage .. ndpRsReservedAnon
@@ -236,12 +332,52 @@ function ICMPv6.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, c
         local ndpRaRetransAnon
 
         --Anonymize fields
-        ndpRaHopLimitAnon = ndpRaHopLimit
-        ndpRaFlagsAnon = ndpRaFlags
-        ndpRaLifetimeAnon = ndpRaLifetime
-        ndpRaReachableAnon = ndpRaReachable
-        ndpRaRetransAnon = ndpRaRetrans
 
+        --Curent Hop Limit
+        if policyNDP.raHopLimit == "Keep" then 
+            ndpRaHopLimitAnon = ndpRaHopLimit
+        else 
+            ndpRaHopLimitAnon = shanonHelpers.getSetValueBytes(policyNDP.raHopLimit, 1)
+        end
+
+        --Flags
+        local mask
+        if policyNDP.raManagedFlag == "Zero" and policyNDP.raOtherFlag == "Zero" then 
+            mask = ByteArray.new("00"):raw()
+        elseif policyNDP.raManagedFlag == "Zero" and policyNDP.raOtherFlag == "Keep" then 
+            mask = ByteArray.new("40"):raw()
+        elseif policyNDP.raManagedFlag == "Keep" and policyNDP.raOtherFlag == "Zero" then 
+            mask = ByteArray.new("80"):raw()
+        elseif policyNDP.raManagedFlag == "Keep" and policyNDP.raOtherFlag == "Keep" then 
+            mask = ByteArray.new("C0"):raw()
+        end
+        ndpRaFlagsAnon = libAnonLua.apply_mask(ndpRaFlags, mask)
+        
+        --Lifetimes
+        if policyNDP.raLifetime == "Keep" then 
+            ndpRaLifetimeAnon = ndpRaLifetime
+        elseif policyNDP.raLifetime == "Zero" then 
+            ndpRaLifetimeAnon = ByteArray.new("0000"):raw()
+        else 
+            ndpRaLifetimeAnon = shanonHelpers.getSetValueBytes(policyNDP.raLifetime, 2)
+        end
+
+        if policyNDP.raReachableTime == "Keep" then 
+            ndpRaReachableAnon = ndpRaReachable
+        elseif policyNDP.reachableTime == "Zero" then 
+            ndpRaReachableAnon = ByteArray.new("00000000"):raw()
+        else 
+            ndpRaReachableAnon = shanonHelpers.getSetValueBytes(policyNDP.raReachableTime, 4)
+        end
+        
+        if policyNDP.raRetransTime == "Keep" then 
+            ndpRaRetransAnon = ndpRaRetrans
+        elseif policyNDP.raRetransTime == "Zero" then 
+            ndpRaRetransAnon = ByteArray.new("00000000"):raw()
+        else 
+            ndpRaRetransAnon = shanonHelpers.getSetValueBytes(policyNDP.raRetransTime, 4)
+        end
+        
         --Add anonymized fields to ICMP message
         icmpMessage = icmpMessage .. ndpRaHopLimitAnon .. ndpRaFlagsAnon .. ndpRaLifetimeAnon .. ndpRaReachableAnon .. ndpRaRetransAnon
 
@@ -259,8 +395,44 @@ function ICMPv6.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, c
         local ndpNsTargetAddressAnon
 
         --Anonymize fields
-        ndpNsReservedAnon = ndpNsReserved
-        ndpNsTargetAddressAnon = ndpNsTargetAddress
+
+        ndpNsReservedAnon = ByteArray.new("00000000"):raw()
+        
+        --The target address is an IPv6 address and is anonymized using the rules from the IPv6 anonymization configuration
+        
+        local addressPolicy 
+
+        --Test if our address is in any of the subnets with their own policy
+        if policyIPv6.subnets ~= nil then 
+            for subnet, subnetPolicy in pairs(policyIPv6.subnets) do 
+                if libAnonLua.ip_in_subnet(ndpNsTargetAddress, subnet) then 
+                    addressPolicy = subnetPolicy
+                    break
+                end
+            end
+        end
+
+        --If we didn't find a specific policy for this subnet, use the default
+        if addressPolicy == nil then 
+            addressPolicy = policyIPv6.default
+        end
+
+        --Check if our address matches any of the specified subnets in the policy and anonymize accordingly
+        for subnet, anonymizationMethods in pairs(addressPolicy.address) do 
+            if subnet == "default" then
+                --Skip default here. If neither address is in any of the subnets then we'll default later
+            else
+                if libAnonLua.ip_in_subnet(ndpNsTargetAddress, subnet) then 
+                    ndpNsTargetAddressAnon = ipv6.applyAddressAnonymizationMethods(ndpNsTargetAddress, anonymizationMethods)
+                    break
+                end
+            end
+        end
+
+        --If our anonymized value is nil at this point, we didn't find it in any of the specified subnets and we need to use the default
+        if ndpNsTargetAddressAnon == nil then 
+            ndpNsTargetAddressAnon = ipv6.applyAddressAnonymizationMethods(ndpNsTargetAddress, addressPolicy.address.default)
+        end
 
         --Add anonymized fields to ICMP message
         icmpMessage = icmpMessage .. ndpNsReservedAnon .. ndpNsTargetAddressAnon
@@ -279,8 +451,59 @@ function ICMPv6.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, c
         local ndpNaTargetAddressAnon
 
         --Anonymize fields
-        ndpNaFlagsAnon = ndpNaFlags
-        ndpNaTargetAddressAnon = ndpNaTargetAddress
+        
+        --Flags
+
+        local mask
+
+        if policyNDP.naRouterFlag == "Zero" and policyNDP.naOverrideFlag == "Zero" then 
+            mask = ByteArray.new("40000000"):raw()
+        elseif policyNDP.naRouterFlag == "Zero" and policyNDP.naOverrideFlag == "Keep" then 
+            mask = ByteArray.new("60000000"):raw()
+        elseif policyNDP.naRouterFlag == "Keep" and policyNDP.naOverrideFlag == "Zero" then 
+            mask = ByteArray.new("C0000000"):raw()
+        elseif policyNDP.naRouterFlag == "Keep" and policyNDP.naOverrideFlag == "Keep" then 
+            mask = ByteArray.new("E0000000"):raw()
+        end
+
+        ndpNaFlagsAnon = libAnonLua.apply_mask(ndpNaFlags, mask)
+
+        --Target address
+        --The target address is an IPv6 address and is anonymized using the rules from the IPv6 anonymization configuration
+
+        local addressPolicy 
+
+        --Test if our address is in any of the subnets with their own policy
+        if policyIPv6.subnets ~= nil then 
+            for subnet, subnetPolicy in pairs(policyIPv6.subnets) do 
+                if libAnonLua.ip_in_subnet(ndpNaTargetAddress, subnet) then 
+                    addressPolicy = subnetPolicy
+                    break
+                end
+            end
+        end
+
+        --If we didn't find a specific policy for this subnet, use the default
+        if addressPolicy == nil then 
+            addressPolicy = policyIPv6.default
+        end
+
+        --Check if our address matches any of the specified subnets in the policy and anonymize accordingly
+        for subnet, anonymizationMethods in pairs(addressPolicy.address) do 
+            if subnet == "default" then
+                --Skip default here. If neither address is in any of the subnets then we'll default later
+            else
+                if libAnonLua.ip_in_subnet(ndpNaTargetAddress, subnet) then 
+                    ndpNaTargetAddressAnon = ipv6.applyAddressAnonymizationMethods(ndpNaTargetAddress, anonymizationMethods)
+                    break
+                end
+            end
+        end
+
+        --If our anonymized value is nil at this point, we didn't find it in any of the specified subnets and we need to use the default
+        if ndpNaTargetAddressAnon == nil then 
+            ndpNaTargetAddressAnon = ipv6.applyAddressAnonymizationMethods(ndpNaTargetAddress, addressPolicy.address.default)
+        end
 
         --Add anonymized fields to ICMP message
         icmpMessage = icmpMessage .. ndpNaFlagsAnon .. ndpNaTargetAddressAnon
@@ -301,9 +524,61 @@ function ICMPv6.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, c
         local redirectDestinationAnon
 
         --Anonymize fields
-        redirectReservedAnon = redirectReserved
-        redirectTargetAnon = redirectTarget
-        redirectDestinationAnon = redirectDestination
+        redirectReservedAnon = ByteArray.new("00000000"):raw()
+        
+
+        local addressPolicy
+
+        --Check if we have a policy for subnets and if our source or destination addresses match and of the subnets specified in the policy
+        if policyIPv6.subnets ~= nil then
+            for subnet, subnetPolicy in pairs(policyIPv6.subnets) do
+                if libAnonLua.ip_in_subnet(redirectTarget, subnet) or libAnonLua.ip_in_subnet(redirectDestination, subnet) then
+                    addressPolicy = subnetPolicy
+                    break
+                end
+            end
+        end
+
+        --If we didn't find a specific policy for this subnet, use the default
+        if addressPolicy == nil then 
+            addressPolicy = policyIPv6.default
+        end
+
+        --Redirect Target Address
+
+        for subnet, anonymizationMethods in pairs(addressPolicy.address) do 
+            if subnet == "default" then 
+                --Skip default here. If the address isn't in any of the subnets we'll default later
+            else 
+                if libAnonLua.ip_in_subnet(redirectTarget, subnet) then 
+                    redirectTargetAnon = ipv6.applyAddressAnonymizationMethods(redirectTarget, anonymizationMethods)
+                    break
+                end
+            end
+        end
+
+        --If we didn't find a matching subnet this will still be nil. Apply the default
+        if redirectTargetAnon == nil then 
+            redirectTargetAnon = ipv6.applyAddressAnonymizationMethods(redirectTarget, addressPolicy.default)
+        end
+
+        --Redirect Destination Address
+
+        for subnet, anonymizationMethods in pairs(addressPolicy.address) do 
+            if subnet == "default" then 
+                --Skip default here. If the address isn't in any of the subnets we'll default later
+            else 
+                if libAnonLua.ip_in_subnet(redirectDestination, subnet) then 
+                    redirectDestinationAnon = ipv6.applyAddressAnonymizationMethods(redirectDestination, anonymizationMethods)
+                    break
+                end
+            end
+        end
+
+        --If we didn't find a matching subnet this will still be nil. Apply the default
+        if redirectDestinationAnon == nil then 
+            redirectDestinationAnon = ipv6.applyAddressAnonymizationMethods(redirectDestination, addressPolicy.default)
+        end
 
         --Add anonymized fields to icmp message
         icmpMessage = icmpMessage .. redirectReservedAnon .. redirectTargetAnon .. redirectDestinationAnon
@@ -320,7 +595,7 @@ function ICMPv6.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, c
         local icmpDataAnon
 
         --Anonymize fields
-        icmpDataAnon = icmpData
+        icmpDataAnon = shanonHelpers.generateZeroPayload(icmpData:len())
 
         --Add anonymized fields to icmp message
         icmpMessage = icmpMessage .. icmpDataAnon
@@ -508,9 +783,34 @@ function ICMPv6.handleOptions(tvb, icmpv6Start, icmpv6End)
     return optionPayload
 end
 
---Validator for ICMPv6 anonymization policy
+--Validator for ICMPv6 and NDP anonymization policies
 function ICMPv6.validatePolicy(config)
-    --TODO: Implement
+    
+    --Check if the config has an anonymizationPolicy
+    shanonPolicyValidators.verifyPolicyExists(config)
+
+    --Verify the policy exists and its contents
+    if config.anonymizationPolicy.icmpv6 == nil then
+        shanonHelpers.crashMissingPolicy("ICMPv6")
+    else
+        for option, validator in pairs(ICMPv6.policyValidation) do
+            if not validator(config.anonymizationPolicy.icmpv6[option]) then
+                shanonHelpers.crashMissingOption("ICMPv6", option)
+            end
+        end
+    end
+
+    --Verify the policy exists and its contents
+    if config.anonymizationPolicy.ndp == nil then
+        shanonHelpers.crashMissingPolicy("NDP")
+    else
+        for option, validator in pairs(ICMPv6.NDP.policyValidation) do
+            if not validator(config.anonymizationPolicy.ndp[option]) then
+                shanonHelpers.crashMissingOption("NDP", option)
+            end
+        end
+    end
+
 end
 
 --Return the module table

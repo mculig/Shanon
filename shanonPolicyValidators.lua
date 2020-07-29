@@ -78,7 +78,7 @@ function policyValidators.validateBlackMarker(blackMarkerString)
 end
 
 --Validate the SetValue policy option
-function policyValidators.validateSetValue(setValueString)
+function policyValidators.validateSetValue(setValueString, range)
     local patternSetValue = "(SetValue_)%d+"
 
     --Check if the setValueString is nil
@@ -88,7 +88,17 @@ function policyValidators.validateSetValue(setValueString)
 
     --If the setValueString matches the pattern it passes
     if "" == string.gsub(setValueString, patternSetValue, "") then
-        return true
+        local setValueParameters, parameterCount = shanonHelpers.split(setValueString, "_")
+        local numberString = setValueParameters[2]
+        --Numerical value of SetValue value
+        local numberValue = tonumber(numberString)
+
+        local minimum = range[1]
+        local maximum = range[2]
+
+        if numberValue >= minimum and numberValue <= maximum then
+            return true
+        end
     end
 
     return false

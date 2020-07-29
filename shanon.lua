@@ -107,10 +107,11 @@ function Tap_Frame.packet(pinfo, tvb, tapinfo)
                     anonymizedFrame = ""
                     --Crash with an error
                     shanonHelpers.crashWithError(
-                        "Error in frame: " .. frameNumber.value .. 
-                        ". Anonymizer for protocol: \"" .. protocolName .. "\" encountered an error. Check log for details.", 
                         "Error in frame: " .. frameNumber.value .. ". Anonymizer for protocol: \"" .. protocolName .. 
-                        "\" encountered the following error: " .. output)
+                        "\" encountered the following error: " .. output,
+                        "Error in frame: " .. frameNumber.value .. 
+                        ". Anonymizer for protocol: \"" .. protocolName .. "\" encountered an error. Check log for details."
+                        )
                 else
                     --If everything went smoothly, set the anonymized frame to our anonymizer's output
                     anonymizedFrame = output

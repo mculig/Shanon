@@ -71,7 +71,7 @@ IPv6.policyValidation =
 {
     trafficClass = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep", "Zero"}), 
     flowLabel = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep", "Zero"}),
-    hopLimit = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep"}, shanonPolicyValidators.validateSetValue, nil),
+    hopLimit = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep"}, shanonPolicyValidators.validateSetValue, {1, 255}),
     headers_hopByHop_keep = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"True", "False"}),
     headers_hopByHop_payload = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Zero", "Minimum", "Keep"}),
     headers_routing_keep = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"True", "False"}),
@@ -569,7 +569,7 @@ function IPv6.validatePolicy(config)
         --Iterate through validators to validate policy elements
         for option, validator in pairs(IPv6.policyValidation) do
             if not validator(config.anonymizationPolicy.ipv6.default[option]) then
-                shanonHelpers.crashMissingPolicy("IPv6", option)
+                shanonHelpers.crashMissingOption("IPv6", option)
             end
         end
     end

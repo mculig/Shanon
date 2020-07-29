@@ -85,7 +85,7 @@ Config.anonymizationPolicy.ipv4 = {
         --The TTL field
         --Options:
         --Keep: Keep TTL as it was
-        --SetValue_N: Set the TTL field value to a specific number N
+        --SetValue_N: Set the TTL field value to a specific number N. The range for this field is between 1 and 255 includive
         ttl = "SetValue_64",
         --The IPv4 Checksum
         --Options:
@@ -158,7 +158,7 @@ Config.anonymizationPolicy.ipv6 = {
         --IPv6 Hop Limit (TTL)
         --Options:
         --Keep: Keep value as is
-        --SetValue_N: Set the TTL field to a specific number N
+        --SetValue_N: Set the TTL field to a specific number N. The range for this field is between 1 and 255 includive
         hopLimit = "SetValue_64",
         --Hop by hop extension headers
         --Whether to keep or discard this option
@@ -200,6 +200,91 @@ Config.anonymizationPolicy.ipv6 = {
 
 }
 
+--The anonymization policy for ICMPv6
+Config.anonymizationPolicy.icmpv6 = {
+    --The ICMPv6 Checksum
+    --Options:
+    --Keep: Keep the field as is
+    --Recalculate: Calculate a new, valid checksum
+    checksum = "Recalculate",
+    --ICMPv6 Echo identifiers and sequence numbers
+    --Options:
+    --Keep: Keep the field as is 
+    --Zero: Set the field to zero
+    echoId = "Zero",
+    echoSequenceNumber = "Zero",
+    --Parameter Problem Pointer
+    --Options:
+    --Keep: Keep the pointer unchanged
+    --Zero: Set the pointer to zero
+    ppPointer = "Zero",
+    --Packet Too Big MTU value
+    --Options:
+    --Keep: Keep the value intact
+    --Zero: Set the value to zero
+    --SetValue_N: Set the MTU field to a specific number N. The range for this field is between 1280 and 200000 inclusive
+    ptbMtu = "Zero"
+
+}
+
+--The anonymization policy for NDP
+--This policy is validated together with ICMPv6 since the anonymization of NDP is done by the ICMPv6 anonymizer
+Config.anonymizationPolicy.ndp = {
+    --Router Advertisement
+    --Hop Limit
+    --Options:
+    --Keep: Keep the Hop Limit field as is
+    --SetValue_N: Set the Hop Limit field to a specific number N. The range for this field is between 1 and 255 inclusive
+    raHopLimit = "SetValue_64",
+    --Router Advertisement Managed Address Configuration and Other Configuration flags
+    --Options:
+    --Keep: Keep the value of the flag
+    --Zero: Set the flag to 0
+    raManagedFlag = "Zero",
+    raOtherFlag = "Zero",
+    --Router Advertisement Lifetimes. Lifetime is in seconds, Reachable and Retransmit time in miliseconds.
+    --Options:
+    --Keep: Keep the value as it is
+    --SetValue_N: Set the value of the times to specific values
+    --Zero: Set the values of the times to zero
+    raLifetime = "SetValue_3600", --The range for this field is between 0 and 9000 inclusive
+    raReachableTime = "SetValue_3600000", --The range for this field is between 0 and 3600000 inclusive
+    raRetransTime = "SetValue_3600000", --The range for this field is between 0 and 3600000 inclusive
+    --Neighbour Advertisement
+    --Neighbour Advertisement Router and Override flags
+    --Options:
+    --Keep: Keep the flag intact
+    --Zero: Set the flag to zero
+    naRouterFlag = "Keep",
+    naOverrideFlag = "Keep",
+    --Prefix Information Option
+    --The subnet prefix length of the Prefix Option
+    --Options:
+    --Keep: Keep the prefix intact
+    --SetValue_N: Set the value of the prefix to a specific value. This value ranges from 0 to 128 inclusive
+    optPrefixPrefixLength = "Keep", 
+    --The On-link and Autoconfiguation flags
+    --Options:
+    --Keep: Keep the flags as they are
+    --Zero: Set the flags to zero
+    optPrefixOnLinkFlag = "Keep",
+    optPrefixSLAACFlag = "Keep",
+    --The valid and preferred lifetime of the prefixes in seconds
+    --Options:
+    --Keep: Keep the values as they are
+    --SetValue_N: Set the value of the times to specific values. The range for this field is between 100 and 259200
+    --Infinity: Set the values to infinity
+    optPrefixValidLifetime = "Infinity", 
+    optPrefixPreferredLifetime = "Infinity",
+    --MTU Option
+    --Options:
+    --Keep: Keep the value intact
+    --Zero: Set the value to zero
+    --SetValue_N: Set the MTU field to a specific number N. The range for this field is between 1280 and 200000
+    optMtuMtu = "SetValue_1500" 
+}
+
+--The anonymization policy for UDP
 Config.anonymizationPolicy.udp = {
     --UDP Source and Destination Ports
     --Options:
@@ -228,6 +313,8 @@ Config.anonymizationPolicy.udp = {
     payload = "Discard"
 }
 
+--The anonymization policy for TCP
+--TODO: WIP
 Config.anonymizationPolicy.tcp = {
     --TCP Source and Destination Ports
     --The options are the same as for UDP
