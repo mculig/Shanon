@@ -223,7 +223,7 @@ Config.anonymizationPolicy.icmpv6 = {
     --Keep: Keep the value intact
     --Zero: Set the value to zero
     --SetValue_N: Set the MTU field to a specific number N. The range for this field is between 1280 and 200000 inclusive
-    ptbMtu = "Zero"
+    ptbMtu = "SetValue_1337"
 
 }
 

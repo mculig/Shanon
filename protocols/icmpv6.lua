@@ -312,7 +312,7 @@ function ICMPv6.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, c
         icmpMessage = icmpMessage .. ndpRsReservedAnon
 
         --Add options to ICMP message
-        icmpMessage = icmpMessage .. ICMPv6.handleOptions(tvb, icmpv6Start, icmpv6End)
+        icmpMessage = icmpMessage .. ICMPv6.handleOptions(tvb, icmpv6Start, icmpv6End, config)
 
     elseif tmpType == 134 then
         --NDP Router Advertisement
@@ -382,7 +382,7 @@ function ICMPv6.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, c
         icmpMessage = icmpMessage .. ndpRaHopLimitAnon .. ndpRaFlagsAnon .. ndpRaLifetimeAnon .. ndpRaReachableAnon .. ndpRaRetransAnon
 
        --Add options to ICMP message
-       icmpMessage = icmpMessage .. ICMPv6.handleOptions(tvb, icmpv6Start, icmpv6End)
+       icmpMessage = icmpMessage .. ICMPv6.handleOptions(tvb, icmpv6Start, icmpv6End, config)
     elseif tmpType == 135 then
         --NDP Neighbor Solicitation
         --Get fields
@@ -399,46 +399,13 @@ function ICMPv6.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, c
         ndpNsReservedAnon = ByteArray.new("00000000"):raw()
         
         --The target address is an IPv6 address and is anonymized using the rules from the IPv6 anonymization configuration
-        
-        local addressPolicy 
-
-        --Test if our address is in any of the subnets with their own policy
-        if policyIPv6.subnets ~= nil then 
-            for subnet, subnetPolicy in pairs(policyIPv6.subnets) do 
-                if libAnonLua.ip_in_subnet(ndpNsTargetAddress, subnet) then 
-                    addressPolicy = subnetPolicy
-                    break
-                end
-            end
-        end
-
-        --If we didn't find a specific policy for this subnet, use the default
-        if addressPolicy == nil then 
-            addressPolicy = policyIPv6.default
-        end
-
-        --Check if our address matches any of the specified subnets in the policy and anonymize accordingly
-        for subnet, anonymizationMethods in pairs(addressPolicy.address) do 
-            if subnet == "default" then
-                --Skip default here. If neither address is in any of the subnets then we'll default later
-            else
-                if libAnonLua.ip_in_subnet(ndpNsTargetAddress, subnet) then 
-                    ndpNsTargetAddressAnon = ipv6.applyAddressAnonymizationMethods(ndpNsTargetAddress, anonymizationMethods)
-                    break
-                end
-            end
-        end
-
-        --If our anonymized value is nil at this point, we didn't find it in any of the specified subnets and we need to use the default
-        if ndpNsTargetAddressAnon == nil then 
-            ndpNsTargetAddressAnon = ipv6.applyAddressAnonymizationMethods(ndpNsTargetAddress, addressPolicy.address.default)
-        end
+        ndpNsTargetAddressAnon = ICMPv6.applyPolicyToAddress(policyIPv6, ndpNsTargetAddress)
 
         --Add anonymized fields to ICMP message
         icmpMessage = icmpMessage .. ndpNsReservedAnon .. ndpNsTargetAddressAnon
 
         --Add options to ICMP message
-        icmpMessage = icmpMessage .. ICMPv6.handleOptions(tvb, icmpv6Start, icmpv6End)
+        icmpMessage = icmpMessage .. ICMPv6.handleOptions(tvb, icmpv6Start, icmpv6End, config)
 
     elseif tmpType == 136 then
         --NDP Neighbor Advertisement
@@ -509,7 +476,7 @@ function ICMPv6.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, c
         icmpMessage = icmpMessage .. ndpNaFlagsAnon .. ndpNaTargetAddressAnon
 
         --Add options to ICMP message
-        icmpMessage = icmpMessage .. ICMPv6.handleOptions(tvb, icmpv6Start, icmpv6End)
+        icmpMessage = icmpMessage .. ICMPv6.handleOptions(tvb, icmpv6Start, icmpv6End, config)
 
     elseif tmpType == 137 then
         --Redirect
@@ -584,7 +551,7 @@ function ICMPv6.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, c
         icmpMessage = icmpMessage .. redirectReservedAnon .. redirectTargetAnon .. redirectDestinationAnon
 
         --Add options to ICMP message
-        icmpMessage = icmpMessage .. ICMPv6.handleOptions(tvb, icmpv6Start, icmpv6End)
+        icmpMessage = icmpMessage .. ICMPv6.handleOptions(tvb, icmpv6Start, icmpv6End, config)
 
     else
         --Handle other messages
@@ -607,7 +574,12 @@ function ICMPv6.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, c
 end
 
 -- Function to handle ICMPv6 options
-function ICMPv6.handleOptions(tvb, icmpv6Start, icmpv6End)
+function ICMPv6.handleOptions(tvb, icmpv6Start, icmpv6End, config)
+
+    --The anonymization policy
+    local policyNDP = config.anonymizationPolicy.ndp
+    local policyIPv6 = config.anonymizationPolicy.ipv6
+    local policyEthernet = config.anonymizationPolicy.ethernet
 
     --The option payload
     local optionPayload = ""
@@ -650,14 +622,53 @@ function ICMPv6.handleOptions(tvb, icmpv6Start, icmpv6End)
             local prefixPrefixAnon
 
             --Anonymize fields
+            --These two fields are the type and length fields for options. They remain unchanged
             prefixOptionTypeAnon = prefixOptionTypes[prefixCount]
             prefixOptionLengthAnon = prefixOptionLengths[prefixCount]
-            prefixLengthAnon = prefixLengths[prefixCount]
-            prefixFlagsAnon = prefixFlags[prefixCount]
-            prefixValidLifetimeAnon = prefixValidLifetimes[prefixCount]
-            prefixPreferredLifetimeAnon = prefixPreferredLifetimes[prefixCount]
-            prefixReservedAnon = prefixReservedFields[prefixCount]
-            prefixPrefixAnon = prefixPrefixes[prefixCount]
+
+            --Prexif Length
+            if policyNDP.optPrefixPrefixLength == "Keep" then 
+                prefixLengthAnon = prefixLengths[prefixCount]
+            else
+                prefixLengthAnon = shanonHelpers.getSetValueBytes(policyNDP.optPrefixPrefixLength, 1)
+            end
+            
+            --Flags
+            local mask
+            if policyNDP.optPrefixOnLinkFlag == "Zero" and policyNDP.optPrefixSLAACFlag == "Zero" then
+                mask = ByteArray.new("00"):raw()
+            elseif policyNDP.optPrefixOnLinkFlag == "Zero" and policyNDP.optPrefixSLAACFlag == "Keep" then
+                mask = ByteArray.new("40"):raw()
+            elseif policyNDP.optPrefixOnLinkFlag == "Keep" and policyNDP.optPrefixSLAACFlag == "Zero" then
+                mask = ByteArray.new("80"):raw()
+            elseif policyNDP.optPrefixOnLinkFlag == "Keep" and policyNDP.optPrefixSLAACFlag == "Keep" then
+                mask = ByteArray.new("C0"):raw()
+            end
+
+            prefixFlagsAnon = libAnonLua.apply_mask(prefixFlags[prefixCount], mask)
+            
+            --Lifetimes
+            if policyNDP.optPrefixValidLifetime == "Keep" then 
+                prefixValidLifetimeAnon = prefixValidLifetimes[prefixCount]
+            elseif policyNDP.optPrefixValidLifetime == "Infinity" then 
+                prefixValidLifetimeAnon = ByteArray.new("FFFFFFFF"):raw()
+            else 
+                prefixValidLifetimeAnon = shanonHelpers.getSetValueBytes(policyNDP.optPrefixValidLifetime, 4)
+            end
+           
+            if policyNDP.optPrefixPreferredLifetime == "Keep" then 
+                prefixPreferredLifetimeAnon = prefixPreferredLifetimes[prefixCount]
+            elseif policyNDP.optPrefixPreferredLifetime == "Infinity" then 
+                prefixPreferredLifetimeAnon = ByteArray.new("FFFFFFFF"):raw()
+            else 
+                prefixPreferredLifetimeAnon = shanonHelpers.getSetValueBytes(policyNDP.optPrefixPreferredLifetime, 4)
+            end
+            
+            --Set reserved field to 0
+            prefixReservedAnon = ByteArray.new("00000000"):raw()
+
+            --The prefix is an IPv6 address and is anonymized according to IPv6 policy
+            prefixPrefixAnon = ICMPv6.applyPolicyToAddress(policyIPv6, prefixPrefixes[prefixCount])
 
             --Subtract from count
             prefixCount = prefixCount - 1
@@ -688,9 +699,17 @@ function ICMPv6.handleOptions(tvb, icmpv6Start, icmpv6End)
             local llAddrLinkLayerAddressAnon 
 
             --Anonymize fields
+            --Option types and lengths aren't anonymized
             llAddrOptionTypeAnon = llAddrOptionTypes[llAddrCount]
             llAddrOptionLengthAnon = llAddrOptionLengths[llAddrCount]
-            llAddrLinkLayerAddressAnon = llAddrLinkLayerAddresses[llAddrCount]
+
+            --Since Shanon only processes Ethernet on the link layer, this is an Ethernet address and is processed according to the rules for Ethernet
+            if policyEthernet.address == "Keep" then 
+                llAddrLinkLayerAddressAnon = llAddrLinkLayerAddresses[llAddrCount]
+            else
+                local blackMarkerDirection, blackMarkerLength = shanonHelpers.getBlackMarkerValues(policyEthernet.address)
+                llAddrLinkLayerAddressAnon = libAnonLua.black_marker(llAddrLinkLayerAddresses[llAddrCount], blackMarkerLength, blackMarkerDirection)
+            end
 
             --Subtract from count
             llAddrCount = llAddrCount - 1
@@ -726,10 +745,21 @@ function ICMPv6.handleOptions(tvb, icmpv6Start, icmpv6End)
             local mtuMtuAnon
 
             --Anonymize fields
+            --Option types and lengths aren't anonymized
             mtuOptionTypeAnon = mtuTypes[mtuCount]
             mtuOptionLengthAnon = mtuOptionLengths[mtuCount]
-            mtuReservedAnon = mtuReservedFields[mtuCount]
-            mtuMtuAnon = mtuMtus[mtuCount]
+
+            --Reserved field
+            mtuReservedAnon = ByteArray:new("0000"):raw()
+
+            --MTU
+            if policyNDP.optMtuMtu == "Keep" then 
+                mtuMtuAnon = mtuMtus[mtuCount]
+            elseif policyNDP.optMtuMtu == "Zero" then 
+                mtuMtuAnon = ByteArray:new("00000000"):raw()
+            else
+                mtuMtuAnon = shanonHelpers.getSetValueBytes(policyNDP.optMtuMtu, 4)
+            end
 
             --Subtract from count
             mtuCount = mtuCount - 1
@@ -765,10 +795,15 @@ function ICMPv6.handleOptions(tvb, icmpv6Start, icmpv6End)
             local redirectPacketAnon
 
             --Anonymize fields
+            --Option types and lengths aren't anonymized
             redirectOptionTypeAnon = redirectOptionTypes[redirectCount]
             redirectOptionLengthAnon = redirectOptionLengths[redirectCount]
-            redirectReservedAnon = redirectReservedFields[redirectCount]
-            redirectPacketAnon = redirectPackets[redirectCount]
+
+            --Reserved field
+            redirectReservedAnon = ByteArray.new("000000000000"):raw()
+
+            --Redirected packet. We simply zero it out
+            redirectPacketAnon = shanonHelpers.generateZeroPayload(redirectPackets[redirectCount]:len())
 
             --Subtract from count
             redirectCount = redirectCount - 1
@@ -781,6 +816,50 @@ function ICMPv6.handleOptions(tvb, icmpv6Start, icmpv6End)
     
     --Return the options
     return optionPayload
+end
+
+--Function to apply correct anonymization policy to an IPv6 address
+function ICMPv6.applyPolicyToAddress(policyIPv6, addressRaw)
+    
+    --The correct policy for this address
+    local addressPolicy
+
+    --The anonymized address
+    local addressAnon
+
+     --Test if our address is in any of the subnets with their own policy
+     if policyIPv6.subnets ~= nil then 
+        for subnet, subnetPolicy in pairs(policyIPv6.subnets) do 
+            if libAnonLua.ip_in_subnet(addressRaw, subnet) then 
+                addressPolicy = subnetPolicy
+                break
+            end
+        end
+    end
+
+    --If we didn't find a specific policy for this subnet, use the default
+    if addressPolicy == nil then 
+        addressPolicy = policyIPv6.default
+    end
+
+    --Check if our address matches any of the specified subnets in the policy and anonymize accordingly
+    for subnet, anonymizationMethods in pairs(addressPolicy.address) do 
+        if subnet == "default" then
+            --Skip default here. If neither address is in any of the subnets then we'll default later
+        else
+            if libAnonLua.ip_in_subnet(addressRaw, subnet) then 
+                addressAnon = ipv6.applyAddressAnonymizationMethods(addressRaw, anonymizationMethods)
+                break
+            end
+        end
+    end
+
+    --If our anonymized value is nil at this point, we didn't find it in any of the specified subnets and we need to use the default
+    if addressAnon == nil then 
+        addressAnon = ipv6.applyAddressAnonymizationMethods(addressRaw, addressPolicy.address.default)
+    end
+
+    return addressAnon
 end
 
 --Validator for ICMPv6 and NDP anonymization policies
