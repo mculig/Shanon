@@ -23,9 +23,8 @@ UDP.checksum = Field.new("udp.checksum")
 UDP.policyValidation = {
     sourcePort = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep", "KeepRange", "Zero"}),
     destinationPort = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep", "KeepRange", "Zero"}),
-    length = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep", "Recalculate"}),
     checksum = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep", "Zero", "Recalculate"}),
-    payload = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"KeepOriginal", "KeepAnonymized", "Discard"})
+    payload = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"ZeroMinimumLength", "ZeroOriginalLength", "Keep","Anonymized1","Anonymized2"})
 }
 
 function UDP.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, config)
@@ -70,41 +69,45 @@ function UDP.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, conf
         udpDstAnon = ByteArray.new("0000"):raw()
     end
     
-    --Handling the payload
-    if policy.payload == "KeepOriginal" then
+    --Length is either recalculated or not, depending on the payload
+    --Payload options are processed here
+
+    if policy.payload == "ZeroMinimumLength" then 
+        anonymizedFrame = shanonHelpers.generateZeroPayload(20)
+        udpLengthAnon = shanonHelpers.getLengthAsBytes(anonymizedFrame, 2, 8)
+    elseif policy.payload == "ZeroOriginalLength" then 
         local udpPayloadLength = shanonHelpers.getValue(UDP.length, relativeStackPosition) - 8
-        --Retrieve the original payload
+        anonymizedFrame = shanonHelpers.generateZeroPayload(udpPayloadLength)
+        udpLengthAnon = udpLength
+    elseif policy.payload == "Keep" then 
+        local udpPayloadLength = shanonHelpers.getValue(UDP.length, relativeStackPosition) - 8
         anonymizedFrame = shanonHelpers.getaBytesAfterField(tvb, UDP.checksum, relativeStackPosition, udpPayloadLength)
-    elseif policy.payload == "KeepAnonymized" then 
-        if anonymizedFrame == "" then 
-            --If the anonymized frame isn't present, we generate a minimum payload OR a length-specific payload depending on the length option
-            if policy.length == "Keep" then 
-                local udpPayloadLength = shanonHelpers.getValue(UDP.length, relativeStackPosition) - 8
-                anonymizedFrame = shanonHelpers.generateZeroPayload(udpPayloadLength)
-            else 
-                --Generate a minimum zero payload of 20 bytes
-                anonymizedFrame = shanonHelpers.generateZeroPayload(20)
-            end
+        udpLengthAnon = udpLength
+    elseif policy.payload == "Anonymized1" then 
+        if anonymizedFrame ~= "" then 
+            --If the anonymized frame is present then a higher layer anonymizer returned something
+            --We use that something and just recalculate the length
+            udpLengthAnon = shanonHelpers.getLengthAsBytes(anonymizedFrame, 2, 8)
+        else 
+            --Same as ZeroMinimumLength
+            anonymizedFrame = shanonHelpers.generateZeroPayload(20)
+            udpLengthAnon = shanonHelpers.getLengthAsBytes(anonymizedFrame, 2, 8)
         end
-    else
-        --Discard
-        if policy.length == "Keep" then 
+    elseif policy.payload == "Anonymized2" then 
+        if anonymizedFrame ~= "" then 
+            --If the anonymized frame is present then a higher layer anonymizer returned something
+            --We use that something and just recalculate the length
+            udpLengthAnon = shanonHelpers.getLengthAsBytes(anonymizedFrame, 2, 8)
+        else 
+            --Same as ZeroOriginalLength
             local udpPayloadLength = shanonHelpers.getValue(UDP.length, relativeStackPosition) - 8
             anonymizedFrame = shanonHelpers.generateZeroPayload(udpPayloadLength)
-        else 
-            --Generate a minimum zero payload of 20 bytes
-            anonymizedFrame = shanonHelpers.generateZeroPayload(20)
+            udpLengthAnon = udpLength
         end
-    end
-
-    --Handling the length
-    if policy.length == "Keep" then 
-        udpLengthAnon = udpLength
-    else
-        udpLengthAnon = shanonHelpers.getLengthAsBytes(anonymizedFrame, 2, 8)
     end
 
     --Handling the checksum
+    --The checksum is recalculated by the IPv4 or IPv6 anonymizer
     if policy.checksum == "Keep" then 
         udpChecksumAnon = udpChecksum
     else 
@@ -119,6 +122,9 @@ end
 
 function UDP.validatePolicy(config)
     
+    --Check if the config has an anonymizationPolicy
+    shanonPolicyValidators.verifyPolicyExists(config)
+
     if config.anonymizationPolicy.udp == nil then 
         --If the policy doesn't exist, crash because it's missing
         shanonHelpers.crashMissingPolicy("UDP")
@@ -126,7 +132,7 @@ function UDP.validatePolicy(config)
         --Run every validator over the options in the policy
         for option, validator in pairs(UDP.policyValidation) do
             if not validator(config.anonymizationPolicy.udp[option]) then
-                shanonHelpers.crashMissingPolicy("UDP", option)
+                shanonHelpers.crashMissingOption("UDP", option)
             end
         end
     end

@@ -13,10 +13,27 @@ local libAnonLua = require "libAnonLua"
 --This can happen when multiple same options are present OR multiple of the same protocol
 function M.getRaw(tvb, fieldExtractor, relativeStackPosition)
 	local fieldInfo = { fieldExtractor() }
+	local returnValue
 	if fieldInfo[relativeStackPosition] == nil then
 		error("Error getting field " .. fieldExtractor.name .. " in the " .. relativeStackPosition .. ". instance of this protocol in the chain.")
+	else
+		returnValue = tvb:range(fieldInfo[relativeStackPosition].offset,fieldInfo[relativeStackPosition].len):bytes():raw()
 	end
-	return tvb:range(fieldInfo[relativeStackPosition].offset,fieldInfo[relativeStackPosition].len):bytes():raw()
+	return returnValue
+end
+
+--Similar to M.getRaw but doesn't throw an error if it can't retrieve a field
+
+function M.getRawOptional(tvb, fieldExtractor, relativeStackPosition)
+	local fieldInfo = { fieldExtractor() }
+	local returnValue
+	if fieldInfo[relativeStackPosition] == nil then
+		--In this method if there is no value we return nil. That's because this field is optional and might not be present.
+		returnValue = nil
+	else
+		returnValue = tvb:range(fieldInfo[relativeStackPosition].offset,fieldInfo[relativeStackPosition].len):bytes():raw()
+	end
+	return returnValue
 end
 
 --Helper to get the value of a field
@@ -185,9 +202,16 @@ function M.split(inputString, delimiter)
 end
 
 --Helper to count occurences of protocol in table
-function M.countOccurences(inputTable, tableSize, protocolName)
+function M.countOccurences(inputTable, tableSize, protocolName, limit)
 	local count = 0
-	for i=1,tableSize do
+	--Position to stop iterating
+	local loopStop
+	if limit ~= nil then 
+		loopStop = limit
+	else 
+		loopStop = tableSize
+	end
+	for i=1,loopStop do
 		if inputTable[i] == protocolName then
 			count = count + 1
 		end

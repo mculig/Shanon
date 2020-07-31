@@ -35,12 +35,7 @@ Config.anonymizationPolicy.ethernet = {
     --BlackMarker: Use a BlackMarker. The syntax is as follows: BlackMarker_Direction_CountBits. 
     --Example: BlackMarker_MSB_24 would apply the method to the most significant 24 bits
     --BlackMarker_LSB_24 would apply the method to the least significant 24 bits
-    address = "BlackMarker_MSB_24",
-    --Payload length
-    --Options:
-    --Recalculate: Calculate a new, correct length, based on the anonymized payload
-    --Keep: Keep the original length
-    length = "Recalculate"
+    address = "BlackMarker_MSB_24"
 }
 
 --There is no entry for ARP since ARP relies on the IPv4 and Ethernet policies for anonymization
@@ -293,11 +288,6 @@ Config.anonymizationPolicy.udp = {
     --Zero: Set the port to zero
     sourcePort = "KeepRange",
     destinationPort = "KeepRange",
-    --UDP payload length
-    --Options: 
-    --Keep: Keep value as is
-    --Recalculate: Calculate new length
-    length = "Keep",
     --UDP Checksum
     --Options:
     --Keep: Keep checksum as is
@@ -306,11 +296,12 @@ Config.anonymizationPolicy.udp = {
     checksum = "Recalculate",
     --UDP payload
     --Options: 
-    --KeepOriginal: Keep the original payload. Discards any payload provided by any higher-layer anonymizer and keeps the UDP payload as it originally was
-    --KeepAnonymized: Keep the anonymized payload if present, if not provide a minimum payload (length="Recalculate") or generate a zero payload (lenght="Keep")
-    --Discard: Discards the payload completely, regardless of higher-layer anonymizers, and provides a generated zero payload the length of which depends on
-    --the length option. If the original length needs to be preserved an appropriate-length payload will be generaed
-    payload = "Discard"
+    --ZeroMinimumLength: Generate a 20 byte payload of zeroes. This value ensures that in the worst case the payload for Ethernet is 48B, 2 bytes more than the minimum
+    --ZeroOriginalLength: Generate a payload of zeroes matching the original length
+    --Keep: Keep the original payload, preserving the length
+    --Anonymized1: Keep an anonymized payload if present OR use ZeroMinimumLength
+    --Anonymized2: Keep an anonymized payload if present OR use ZeroOriginalLength
+    payload = "Anonymized1"
 }
 
 --The anonymization policy for TCP
@@ -328,7 +319,7 @@ Config.anonymizationPolicy.tcp = {
     --TCP Checksum
     --Options:
     --Keep: Keep checksum as is
-    --Recalculate: Calculate a new UDP checksum
+    --Recalculate: Calculate a new TCP checksum
     checksum = "Recalculate",    
     --TCP Urgent Pointer
     --Options:
@@ -340,7 +331,15 @@ Config.anonymizationPolicy.tcp = {
     --Discard: Discard timestamp options if present
     --Keep: Keep the timestamp as is
     --BlackMarker: See the BlackMarker syntax example in the ethernet policy 
-    optTimestamp = "BlackMarker_MSB_16"
+    optTimestamp = "BlackMarker_MSB_16",
+    --TCP payload
+    --Options: 
+    --ZeroMinimumLength: Generate a 20 byte payload of zeroes. The value could be lower here to meet the Ethernet minimum, but is kept at 20 for consistency
+    --ZeroOriginalLength: Generate a payload of zeroes matching the original length
+    --Keep: Keep the original payload, preserving the length
+    --Anonymized1: Keep an anonymized payload if present OR use ZeroMinimumLength
+    --Anonymized2: Keep an anonymized payload if present OR use ZeroOriginalLength
+    payload = "Anonymized1"
 }
 
 

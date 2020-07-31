@@ -35,6 +35,8 @@ local Tap_Frame = Listener.new("frame")
 --Fields
 local Field_frame_protocols = Field.new("frame.protocols")
 local Field_frame_number = Field.new("frame.number")
+local Field_frame_lengthOnWire = Field.new("frame.len")
+local Field_frame_captureLength = Field.new("frame.cap_len")
 
 --Protocols we anonymize
 local protocols = {
@@ -77,20 +79,39 @@ function Tap_Frame.packet(pinfo, tvb, tapinfo)
     --Get the protocol list
     local protocolList, protocolCount = shanonHelpers.split(tostring(Field_frame_protocols()), ":")
 
+     --Current position in protocol stack
+    --Go through the protocol stack and test if we have icmp or icmpv6. If we do, don't process anything after that
+    --This serves to prevent crashing due to processing partial protocol data tha icmp and icmpv6 may contain
+    --In case we encounter nil we've reached the end of the protocol stack. In that case we process everything
+    local currentPosition = 1 
+    while protocolList[currentPosition] ~= "icmp" and protocolList[currentPosition] ~= "icmpv6" and protocolList[currentPosition+1] ~= nil do 
+        currentPosition = currentPosition + 1
+    end
+
+
+
+    print("Current position: " .. currentPosition)
+
     --Add counts to existing anonymizers
     --A protocol can appear multiple times
     --When fetching the individual protocol fields it is important to know which instance of the protocol this is in the chain
     --This is done by counting the number of times this appears and setting a relativeStackPosition
     --As the chain is parsed each time a protocol is encountered and processed this stack position is decremented
     for protocolName, protocol in pairs(protocols) do 
-        protocol.relativeStackPosition = shanonHelpers.countOccurences(protocolList, protocolCount, protocol.filterName)
+        protocol.relativeStackPosition = shanonHelpers.countOccurences(protocolList, protocolCount, protocol.filterName, currentPosition)
     end
 
     --TODO: Remove temporary prints
     print(Field_frame_protocols()) 
     
-    --Current position in protocol stack
-    local currentPosition = protocolCount
+    --Check if this packet contains partial data
+    local frameLength = Field_frame_lengthOnWire().value
+    local captureLength = Field_frame_captureLength().value 
+
+    if frameLength ~= captureLength then 
+        --We've got a partial frame. Crash with an error and report
+        shanonHelpers.crashWithError("Partial frame found! Frame number " .. frameNumber.value .. "had more bytes on wire than were captured. Shanon does not support processing partial protocol data!")
+    end
 
     while currentPosition ~= 0 do
 
@@ -133,8 +154,8 @@ function Tap_Frame.packet(pinfo, tvb, tapinfo)
         --to treat the lower layer stuff as data
         if not protocolMatchFound then 
             --TODO: This is a lot of log data. Provide an option to mute it if it's not of interest to the user
-            shanonHelpers.writeLog(shanonHelpers.logInfo, "Unhandled protocol: \"" .. protocolList[currentPosition] .. "\" encountered at position: " 
-            .. currentPosition .. " in protocol chain in frame " .. frameNumber.value .. 
+            shanonHelpers.writeLog(shanonHelpers.logInfo, "Unhandled protocol: \"" .. protocolList[currentPosition] 
+            .. "\" encountered in frame " .. frameNumber.value .. 
             " This protocol will be treated as data by lower layer protocols and will be anonymized as data.")
             --If we encounter something unknown, we simply set the anonymized frame empty again
             anonymizedFrame = ""

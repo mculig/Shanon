@@ -34,8 +34,7 @@ Ethernet.length = Field.new("eth.len") -- Length
 Ethernet.policyValidation = 
 {
     fcs = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Recalculate", "Skip"}),
-    address = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep"}, shanonPolicyValidators.validateBlackMarker, nil),
-    length = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Recalculate", "Keep"})
+    address = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep"}, shanonPolicyValidators.validateBlackMarker, nil)
 }
 
 --A minimum Ethernet payload length
@@ -89,14 +88,10 @@ function Ethernet.anonymize(tvb, protocolList, currentPosition, anonymizedFrame,
         ethTypeLengthAnon = ethType 
     end
 
-    --If the ethernet length is present
+    --Recalculate length
     if ethLength ~=nil then 
-        if policy.length == "Recalculate" then 
-            ethTypeLengthAnon = shanonHelpers.getLengthAsBytes(anonymizedFrame:len(), 2)
-        else 
-            ethTypeLengthAnon = ethLength
-        end 
-    end
+        ethTypeLengthAnon = shanonHelpers.getLengthAsBytes(anonymizedFrame, 2)
+    end    
 
     local ethernetFrame = ethDstAnon .. ethSrcAnon .. ethTypeLengthAnon .. anonymizedFrame
 

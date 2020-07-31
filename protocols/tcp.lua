@@ -3,6 +3,7 @@
 --Our libraries
 local libAnonLua = require "libAnonLua"
 local shanonHelpers = require "shanonHelpers"
+local shanonPolicyValidators = require "shanonPolicyValidators"
 
 --Module table
 local TCP={}
@@ -64,15 +65,29 @@ TCP.OPT.SACK.BlockCount = 1 --Count of SACK blocks in the SACK
 TCP.OPT.SACK.LE = Field.new("tcp.options.sack_le") --Left edge of a SACK block
 TCP.OPT.SACK.RE = Field.new("tcp.options.sack_re") --Right edge of a SACK block
 
+TCP.policyValidation = {
+    sourcePort = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep", "KeepRange", "Zero"}),
+    destinationPort = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep", "KeepRange", "Zero"}),
+    flagUrgent =shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep", "Zero"}),
+    checksum = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep", "Recalculate"}),   
+    urgentPointer = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep",  "Zero"}),
+    optTimestamp = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep", "Discard"}, shanonPolicyValidators.validateBlackMarker, nil),
+    payload = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"ZeroMinimumLength", "ZeroOriginalLength", "Keep","Anonymized1","Anonymized2"})
+}
+
 function TCP.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, config)
-   
-    
+       
     --Create a local relativeStackPosition and decrement the main
     --That way if any weird behaviour occurs the rest of execution isn't neccessarily compromised
     local relativeStackPosition = TCP.relativeStackPosition
     TCP.relativeStackPosition = TCP.relativeStackPosition - 1
 
+    --Shorthand to make life easier
+    local policy = config.anonymizationPolicy.tcp
+
     --Get fields
+    --Fields not existing means we have a partial protocol header and we do not process those, so in that case we return an empty anonymizedFrame
+    --The lower layer protocol handles that
     local tcpSrcPort = shanonHelpers.getRaw(tvb, TCP.srcport, relativeStackPosition)
     local tcpDstPort = shanonHelpers.getRaw(tvb, TCP.dstport, relativeStackPosition)
     local tcpSeq = shanonHelpers.getRaw(tvb, TCP.seq, relativeStackPosition)
@@ -81,8 +96,9 @@ function TCP.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, conf
     local tcpWindow = shanonHelpers.getRaw(tvb, TCP.window, relativeStackPosition)
     local tcpChecksum = shanonHelpers.getRaw(tvb, TCP.checksum, relativeStackPosition)
     local tcpUrgent = shanonHelpers.getRaw(tvb, TCP.urgent, relativeStackPosition)
-
-    --TODO: Get TCP payload if no lower layer data is provided
+    --Problem: There might not be a TCP payload
+    --If there is no payload we set it to an empty string. The rest of the code handles this fine
+    local tcpPayload = shanonHelpers.getRawOptional(tvb, TCP.payload, relativeStackPosition) or ""
 
     --Anonymized fields. Logical separation so non-anonymized data never makes it into file
     local tcpSrcPortAnon
@@ -93,18 +109,89 @@ function TCP.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, conf
     local tcpWindowAnon
     local tcpChecksumAnon
     local tcpUrgentAnon
-    
-    --TODO: Payload anon 
+    local tcpPayloadAnon
 
     --Anonymize stuff here
-    tcpSrcPortAnon = tcpSrcPort
-    tcpDstPortAnon = tcpDstPort
+
+    --Src port
+    if policy.sourcePort == "Keep" then 
+        tcpSrcPortAnon = tcpSrcPort
+    elseif policy.sourcePort == "KeepRange" then 
+        tcpSrcPortAnon = libAnonLua.get_port_range(tcpSrcPort)
+    else 
+        tcpSrcPortAnon = ByteArray:new("0000"):raw()
+    end
+    
+    --Dst port
+    if policy.destinationPort == "Keep" then 
+        tcpDstPortAnon = tcpDstPort
+    elseif policy.destinationPort == "KeepRange" then 
+        tcpDstPortAnon = libAnonLua.get_port_range(tcpDstPort)
+    else 
+        tcpDstPortAnon = ByteArray:new("0000"):raw()
+    end
+    
+    --The TCP window won't be changed
+    tcpWindowAnon = tcpWindow
+
+    --The TCP checksum is recalculated in the IP and IPv6 anonymizers
+    tcpChecksumAnon = tcpChecksum
+
+    --Urgent pointer
+    if policy.urgentPointer == "Keep" then 
+        tcpUrgentAnon = tcpUrgent
+    else 
+        tcpUrgentAnon = ByteArray.new("0000"):raw()
+    end
+
+    --Payload is processed here
+    if policy.payload == "ZeroMinimumLength" then 
+        if tcpPayload ~= "" then 
+            anonymizedFrame = shanonHelpers.generateZeroPayload(20)
+        else
+            --An empty TCP payload should stay empty. This accounts for TCP packets in the handshakes, which are empty
+            anonymizedFrame = ""
+        end
+    elseif policy.payload == "ZeroOriginalLength" then 
+        anonymizedFrame = shanonHelpers.generateZeroPayload(tcpPayload:len())
+    elseif policy.payload == "Keep" then 
+        anonymizedFrame = tcpPayload
+    elseif policy.payload == "Anonymized1" then 
+        if anonymizedFrame == "" then 
+            --If there is no anonymizedFrame
+            --Same as ZeroMinimumLength
+            if tcpPayload ~= "" then 
+                anonymizedFrame = shanonHelpers.generateZeroPayload(20)
+            else
+                --An empty TCP payload should stay empty. This accounts for TCP packets in the handshakes, which are empty
+                anonymizedFrame = ""
+            end
+        end
+    elseif policy.payload == "Anonymized2" then 
+        if anonymizedFrame == "" then 
+            --If there is no anonymizedFrame
+            --Same as ZeroOriginalLength
+            anonymizedFrame = shanonHelpers.generateZeroPayload(tcpPayload:len())
+        end
+    end
+
+    --Seq and Ack need special recalculation done
+    --TODO: Seq and Ack recalculation
     tcpSeqAnon = tcpSeq
     tcpAckAnon = tcpAck
-    tcpOffsetReservedFlagsAnon = tcpOffsetReservedFlags
-    tcpWindowAnon = tcpWindow
-    tcpChecksumAnon = tcpChecksum
-    tcpUrgentAnon = tcpUrgent
+
+    --Anonymization of the urgent flag
+    --This needs to happen before options are handled because we change the value in the anonymized field there
+    --based on the length of the options processed to generate a valid TCP offset
+    local mask
+    if policy.flagUrgent == "Keep" then
+        mask = ByteArray.new("F1FF"):raw()
+    else 
+        --Zero option
+        mask = ByteArray.new("F1DF"):raw()
+    end
+    --Apply the mask either hiding or keeping the URG flag
+    tcpOffsetReservedFlagsAnon = libAnonLua.apply_mask(tcpOffsetReservedFlags, mask)
 
     --Handle options
     local tcpOffsetCalculated
@@ -112,7 +199,9 @@ function TCP.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, conf
     tcpOffsetCalculated, tcpOptions = TCP.handleOptions(tvb, relativeStackPosition)
 
     --Get the original offset. These are raw bits
-    local tcpOffsetOrg = tcpOffsetReservedFlags:sub(1,1)
+    --We get this from the anonimized field because we already masked the reserved bits there
+    --The rest of the anonymized field is left the same so there is no issue
+    local tcpOffsetOrg = tcpOffsetReservedFlagsAnon:sub(1,1)
     --Turn it into a number by getting the decimal equivalent
     local tcpOffsetOrgByte = tcpOffsetOrg:byte(1)
     --The rest of division by 16 is the lower 4 bits
@@ -128,7 +217,7 @@ function TCP.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, conf
     local tcpHeader = tcpSrcPortAnon .. tcpDstPortAnon .. tcpSeqAnon .. tcpAckAnon .. tcpOffsetReservedFlagsAnon 
     tcpHeader = tcpHeader .. tcpWindowAnon .. tcpChecksumAnon .. tcpUrgentAnon .. tcpOptions
 
-    return tcpHeader
+    return tcpHeader .. anonymizedFrame
 end
 
 function TCP.handleOptions(tvb, relativeStackPosition)
@@ -376,12 +465,23 @@ function TCP.handleOptions(tvb, relativeStackPosition)
     local tcpDataOffset = (optionData:len() + 20) / 4
 
     return tcpDataOffset, optionData
-
 end
 
 --Validator for TCP anonymization policy
 function TCP.validatePolicy(config)
-    --TODO: Implement
+   --Check if the config has an anonymizationPolicy
+   shanonPolicyValidators.verifyPolicyExists(config)
+
+    if config.anonymizationPolicy.tcp == nil then 
+        --If the policy doesn't exist, crash because it's missing
+        shanonHelpers.crashMissingPolicy("TCP")
+    else 
+        for option, validator in pairs(TCP.policyValidation) do 
+            if not validator(config.anonymizationPolicy.tcp[option]) then 
+                shanonHelpers.crashMissingOption("TCP", option)
+            end
+        end
+    end
 end
 
 --Return the module table

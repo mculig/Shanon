@@ -107,8 +107,9 @@ function IPv4.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, con
     --If the anonymized frame is empty, get the length value and generate a zero payload of same length
     --Otherwise recalculate the length to match
     if anonymizedFrame == "" then
-        local ipPayloadLength = shanonHelpers.getValue(IP.totalLength) - 20
+        local ipPayloadLength = shanonHelpers.getValue(IPv4.totalLength, relativeStackPosition) - 20
         anonymizedFrame = shanonHelpers.generateZeroPayload(ipPayloadLength)
+        ipLengthAnon = shanonHelpers.getLengthAsBytes(anonymizedFrame, 2, 20)
     else
         ipLengthAnon = shanonHelpers.getLengthAsBytes(anonymizedFrame, 2, 20)
     end
@@ -189,14 +190,10 @@ function IPv4.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, con
     local ipv4PacketAnon = ipv4HeaderAnon .. anonymizedFrame
 
     --Deal with TCP and UDP checksums here
-    --TODO: Check in protocol policies if the checksum should be recalculated or not
-    --TODO: Remove prints
     if ipProtocolAnon == ByteArray.new("11"):raw() and config.anonymizationPolicy.udp.checksum == "Recalculate" then --UDP
-        print("IPv4 payload UDP")
         local udpChecksum
         udpChecksum, anonymizedFrame = libAnonLua.calculate_tcp_udp_checksum(ipv4PacketAnon)
-    elseif ipProtocolAnon == ByteArray.new("06"):raw() then --TCP
-        print("IPv4 payload TCP")
+    elseif ipProtocolAnon == ByteArray.new("06"):raw() and config.anonymizationPolicy.tcp.checksum == "Recalculate" then --TCP
         local tcpChecksum
         tcpChecksum, anonymizedFrame = libAnonLua.calculate_tcp_udp_checksum(ipv4PacketAnon)
     end
