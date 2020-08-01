@@ -30,6 +30,12 @@ TCP.payload = Field.new("tcp.payload") --The higher layer protocol data
 --of TCP in a protocol chain
 TCP.headerLength = Field.new("tcp.hdr_len")
 
+--The TCP stream index is used to differentiate between different TCP streams each of which should have their own SEQ/ACK recalculations done
+TCP.streamIndex = Field.new("tcp.stream")
+--The state of the SYN and FIN flags is used to know if we should increment SEQ on an empty segment by 1
+TCP.synFlag = Field.new("tcp.flags.syn")
+TCP.finFlag = Field.new("tcp.flags.fin")
+
 --TCP Options
 TCP.OPT = {}
 TCP.OPT.Kind = Field.new("tcp.option_kind")
@@ -64,6 +70,45 @@ TCP.OPT.SACK.BlockCount = 1 --Count of SACK blocks in the SACK
 --SACK Length will have to be calculated based on 
 TCP.OPT.SACK.LE = Field.new("tcp.options.sack_le") --Left edge of a SACK block
 TCP.OPT.SACK.RE = Field.new("tcp.options.sack_re") --Right edge of a SACK block
+
+--This table will be used for anonymizing SEQ and ACK values
+--The structure of the table is as follows:
+--TODO: Remove this once the table structure has been reevaluated
+SEQ_ACK_TABLE_TEMPLATE = {
+    [80] = {
+        Seq = 1,
+        Ack = 1,
+        SeqOrgMapping = {
+            --SEQ mapped to Reclculated
+            [1] = 1,
+            [2] = 2
+        },
+        AckOrgMapping = {
+            --ACK mapped to Recalculated 
+            [1] = 1,
+            [2] = 2
+        }
+    },
+    [64521] = {
+        Seq = 1,
+        Ack = 1,
+        SeqOrgMapping = {
+            [1] = 1,
+            [2] = 2
+        },
+        AckOrgMapping = {
+            [1] = 1,
+            [2] = 2
+        }
+    }
+}
+-- This is done for each side of the TCP conversation, so port appears twice, once for each original port
+--SEQ and ACK will both start at 0
+--SEQ_ORG and ACK_ORG will follow the original values. This will be used if a recalculated value falls out of what is next expected
+--or in case of retransmission to assign correct values
+--In that case a jump will also be made in the values here to preserve the fact that there were lost values in the conversation
+TCP.seqAckTable = {}
+
 
 TCP.policyValidation = {
     sourcePort = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep", "KeepRange", "Zero"}),
@@ -177,6 +222,10 @@ function TCP.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, conf
 
     --Seq and Ack need special recalculation done
     --TODO: Seq and Ack recalculation
+    
+    TCP.remapSeqAck(relativeStackPosition, anonymizedFrame:len())
+    
+
     tcpSeqAnon = tcpSeq
     tcpAckAnon = tcpAck
 
@@ -196,7 +245,7 @@ function TCP.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, conf
     --Handle options
     local tcpOffsetCalculated
     local tcpOptions
-    tcpOffsetCalculated, tcpOptions = TCP.handleOptions(tvb, relativeStackPosition)
+    tcpOffsetCalculated, tcpOptions = TCP.handleOptions(tvb, relativeStackPosition, config)
 
     --Get the original offset. These are raw bits
     --We get this from the anonimized field because we already masked the reserved bits there
@@ -220,7 +269,10 @@ function TCP.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, conf
     return tcpHeader .. anonymizedFrame
 end
 
-function TCP.handleOptions(tvb, relativeStackPosition)
+function TCP.handleOptions(tvb, relativeStackPosition, config)
+
+    --Get the TCP anonymization policy
+    local policy = config.anonymizationPolicy.tcp
 
     --Get list of present options
     local tcpOptionKinds = { TCP.OPT.Kind() }
@@ -391,7 +443,7 @@ function TCP.handleOptions(tvb, relativeStackPosition)
             optionData = optionData .. sackKindAnon .. sackLengthAnon .. sackPayloadAnon
 
 
-        elseif kind.value == 8 then
+        elseif kind.value == 8 and policy.optTimestamp ~="Discard"  then
             --Timestamp
             
             --Get Fields
@@ -429,8 +481,16 @@ function TCP.handleOptions(tvb, relativeStackPosition)
             --Anonymize fields
             tsKindAnon = tsKind
             tsLengthAnon = tsLength
-            tsValAnon = tsVal
-            tsEchoAnon = tsEcho
+
+            if policy.optTimestamp == "Keep" then 
+                tsValAnon = tsVal
+                tsEchoAnon = tsEcho
+            else 
+                --BlackMarker
+                local blackMarkerDirection, blackMarkerLength = shanonHelpers.getBlackMarkerValues(policy.optTimestamp)
+                tsValAnon = libAnonLua.black_marker(tsVal, blackMarkerLength, blackMarkerDirection)
+                tsEchoAnon = libAnonLua.black_marker(tsEcho, blackMarkerLength, blackMarkerDirection)
+            end            
 
             --Add to Option Data
             optionData = optionData .. tsKindAnon .. tsLengthAnon .. tsValAnon .. tsEchoAnon
@@ -465,6 +525,81 @@ function TCP.handleOptions(tvb, relativeStackPosition)
     local tcpDataOffset = (optionData:len() + 20) / 4
 
     return tcpDataOffset, optionData
+end
+
+--Function for handling TCP SEQ and ACK remapping
+function TCP.remapSeqAck(relativeStackPosition, payloadLength)
+    --Get the TCP stream index
+    local streamIndex = shanonHelpers.getValue(TCP.streamIndex, relativeStackPosition)
+    --Get the source and destination ports
+    local srcPortOrg = shanonHelpers.getValue(TCP.srcport, relativeStackPosition)
+    local dstPortOrg = shanonHelpers.getValue(TCP.dstport, relativeStackPosition)
+    --Get the original Seq and Ack values (relative values)
+    local seqOrg = shanonHelpers.getValue(TCP.seq, relativeStackPosition)
+    local ackOrg = shanonHelpers.getValue(TCP.ack, relativeStackPosition)
+    --Get the syn and fin flag values
+    --These are booleans corresponding to the flag being set or not
+    local synFlag = shanonHelpers.getValue(TCP.synFlag, relativeStackPosition)
+    local finFlag = shanonHelpers.getValue(TCP.finFlag, relativeStackPosition)
+
+    --TODO: Remove print
+    print("Stream index: " .. streamIndex)
+
+    --Check if we have an entry in our table
+    if TCP.seqAckTable[streamIndex] == nil then 
+        --We don't have an entry, create starting values
+        TCP.seqAckTable[streamIndex] = {}
+        TCP.seqAckTable[streamIndex][srcPortOrg] = {}
+        TCP.seqAckTable[streamIndex][dstPortOrg] = {}
+        --If SYN is set, our SEQ should be 0, otherwise keep the original SEQ 
+        if synFlag then 
+            --Source Seq is 0, Next Seq is 1, Ack is 0
+            TCP.seqAckTable[streamIndex][srcPortOrg].Seq = 0
+            TCP.seqAckTable[streamIndex][srcPortOrg].NextSeq = 1
+            TCP.seqAckTable[streamIndex][srcPortOrg].Ack = 0
+
+            --Destination Seq is 0, Next Seq is 0, Ack is 0
+            TCP.seqAckTable[streamIndex][dstPortOrg].Seq = 0
+            TCP.seqAckTable[streamIndex][dstPortOrg].NextSeq = 0
+            TCP.seqAckTable[streamIndex][dstPortOrg].Ack = 1
+        else
+            --If we jump into the middle of a conversation
+            --Source seq is set to original seq, next seq is source seq + payload, ack is original ack
+            TCP.seqAckTable[streamIndex][srcPortOrg].Seq = seqOrg
+            TCP.seqAckTable[streamIndex][srcPortOrg].NextSeq = seqOrg + payloadLength
+            TCP.seqAckTable[streamIndex][srcPortOrg].Ack = ackOrg
+
+            --Destination Seq is unknown, next seq is souce ack, ack is source seq
+            TCP.seqAckTable[streamIndex][dstPortOrg].NextSeq = TCP.seqAckTable[streamIndex][srcPortOrg].Ack
+            TCP.seqAckTable[streamIndex][dstPortOrg].Ack = TCP.seqAckTable[streamIndex][srcPortOrg].Seq
+        end
+    else 
+        --If this stream index is already present
+        --Seq is the next seq
+        TCP.seqAckTable[streamIndex][srcPortOrg].Seq = TCP.seqAckTable[streamIndex][srcPortOrg].NextSeq
+        
+        if synFlag then 
+            --The next SEQ is SEQ + 1
+            TCP.seqAckTable[streamIndex][srcPortOrg].NextSeq = TCP.seqAckTable[streamIndex][srcPortOrg].Seq + 1
+
+            --Destination Ack will be Ack + 1
+            TCP.seqAckTable[streamIndex][dstPortOrg].Ack = TCP.seqAckTable[streamIndex][dstPortOrg].Ack + 1
+        else 
+            --The next SEQ is SEQ + payload
+            TCP.seqAckTable[streamIndex][srcPortOrg].NextSeq = TCP.seqAckTable[streamIndex][srcPortOrg].Seq + payloadLength
+
+            --Destination Ack will be Source Seq + payload length
+            TCP.seqAckTable[streamIndex][dstPortOrg].Ack = TCP.seqAckTable[streamIndex][srcPortOrg].Ack + payloadLength
+        end
+
+        
+    end
+
+    print("Seq Org: " .. seqOrg .. " Ack Org: " .. ackOrg)
+    print("Seq calc: " .. TCP.seqAckTable[streamIndex][srcPortOrg].Seq .. " Ack Calc: " .. TCP.seqAckTable[streamIndex][srcPortOrg].Ack)
+    
+    --If SYN is set, next expected ACK from the other side is SYN+1, otherwise it's original SEQ+payloadLength
+    
 end
 
 --Validator for TCP anonymization policy
