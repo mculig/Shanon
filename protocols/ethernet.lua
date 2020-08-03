@@ -72,6 +72,12 @@ function Ethernet.anonymize(tvb, protocolList, currentPosition, anonymizedFrame,
         anonymizedFrame = shanonHelpers.generateZeroPayload(Ethernet.minimumPayloadLength)
     end
 
+    --Check if a payload is less than the minimum Ethernet payload and add padding if necessary
+    if anonymizedFrame:len() < 46 then 
+        local paddingLength = 46-anonymizedFrame:len()
+        anonymizedFrame = anonymizedFrame .. shanonHelpers.generateZeroPayload(paddingLength)
+    end
+
     --Anonymize stuff here
     if policy.address == "Keep" then 
         ethDstAnon = ethDst

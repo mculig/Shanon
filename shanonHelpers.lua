@@ -293,6 +293,7 @@ end
 function M.getLengthAsBytes(string, byteCount, addToLength)
 
 	local length = 0
+	--Byte of zeroes used later to fill up the byte count of our output if necessary
 	local zeroByte = ByteArray.new("00"):raw()
 
 	if string ~= nil then 
@@ -335,6 +336,7 @@ end
 --Helper to turn SetValue_number values into bytes
 function M.getSetValueBytes(setValueString, byteCount)
 	
+	--Byte of zeroes used later to fill up the byte count of our output if necessary
 	local zeroByte = ByteArray.new("00"):raw()
 
 	--Split the setValueString into substrings
@@ -347,8 +349,7 @@ function M.getSetValueBytes(setValueString, byteCount)
 	--Just a precaution. This should never happen because we validate the SetValue options with a lua expression when validating the config
 	if numberValue == nil then
 		numberValue = 0
-		--TODO: Crash for this
-		M.writeLog(M.logError, "Error in function getSetValueBytes in shanonHelpers. Function tonumber returned nil when converting string to number. This is a bug in Shanon itself.")
+		error("Error in function getSetValueBytes in shanonHelpers. Function tonumber returned nil when converting string to number. This is a bug in Shanon itself.")
 	end
 
 	--Get number value as hex
@@ -364,8 +365,38 @@ function M.getSetValueBytes(setValueString, byteCount)
 
 	--Check if we ended up with enough bytes
 	if numberValueBytes:len() > byteCount then 
-		--TODO: Crash for this
 		error("Error converting SetValue option to byte array for insertion into protocol field. Conversion of numerical value produced " .. numberValueBytes:len() .. " bytes, but " .. byteCount .. "expected.")
+	else 
+		local difference = byteCount - numberValueBytes:len()
+		while difference > 0 do
+			numberValueBytes = zeroByte .. numberValueBytes
+			difference = difference - 1
+		end
+	end
+
+	return numberValueBytes
+end
+
+--Helper to turn numerical value into N bytes
+function M.numberToBytes(number, byteCount)
+
+	--Byte of zeroes used later to fill up the byte count of our output if necessary
+	local zeroByte = ByteArray.new("00"):raw()
+
+	--Get number value as hex
+	local numberValueHex = string.format("%x", number)
+
+	--Check if the hex value has an even number of digits and add a 0 to the start if not
+	if numberValueHex:len() % 2 ~= 0 then 
+		numberValueHex = "0" .. numberValueHex
+	end
+
+	--Number value as an array of bytes
+	local numberValueBytes = ByteArray.new(numberValueHex):raw()
+
+	--Check if we ended up with enough bytes
+	if numberValueBytes:len() > byteCount then 
+		error("Error converting number to byte array. Conversion of numerical value produced " .. numberValueBytes:len() .. " bytes, but " .. byteCount .. "expected.")
 	else 
 		local difference = byteCount - numberValueBytes:len()
 		while difference > 0 do

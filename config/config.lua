@@ -28,7 +28,7 @@ Config.anonymizationPolicy.ethernet = {
     --Options:
     --Skip: Do not include a FCS with the captured frame
     --Recalculate: Calculate a new, correct FCS
-    fcs = "Skip",
+    fcs = "Recalculate",
     --MAC addresses
     --Options:
     --Keep: Addresses are left unchanged
