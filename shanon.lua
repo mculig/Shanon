@@ -5,7 +5,10 @@ local libAnonLua = require "libAnonLua"
 local shanonHelpers = require "shanonHelpers"
 
 --The required version of libAnonLua
-local requiredLibAnonLuaVersion = 3
+local requiredLibAnonLuaVersion = 4
+
+--The version of Shanon this is
+local shanonVersion = "1.0"
 
 --Verify the libAnonLua version before doing much else
 if libAnonLua.version ~= requiredLibAnonLuaVersion then
@@ -23,11 +26,6 @@ if configStatus == false then
         "Error loading config file. See log for details.")
 end
 
-
---Anonymization policy
---TODO: Remove this. Policy is part of the config now
-local anonymizationPolicy = nil
-
 --Taps and fields for the various protocols being used
 
 --Wireshark frame
@@ -39,6 +37,7 @@ local Field_frame_lengthOnWire = Field.new("frame.len")
 local Field_frame_captureLength = Field.new("frame.cap_len")
 
 --Protocols we anonymize
+--Add new anonymizers here
 local protocols = {
     ethernet = require "protocols.ethernet",
     arp = require "protocols.arp",
@@ -70,12 +69,21 @@ end
 
 --Function to tap into every frame
 function Tap_Frame.packet(pinfo, tvb, tapinfo)
+
     -- Frame info
     local frameNumber = Field_frame_number()
 
     local status --Status for pcall 
     local anonymizedFrame = "" --Create an empty anonymized frame
+    --If any of the anonymizers produced any comments these can be added to the anonymized frame as a comment block
+    local frameComment = "" --Create an empty comment. 
 
+    --If the comment should include the tool and libary versions, add them now
+    if config.commentToolInformation ~= nil and config.commentToolInformation == true then 
+        local anonymizedUsing = "Anonymized using Shanon version " .. shanonVersion .. " with libAnonLua version " .. requiredLibAnonLuaVersion
+        frameComment = frameComment .. anonymizedUsing 
+    end
+ 
     --Get the protocol list
     local protocolList, protocolCount = shanonHelpers.split(tostring(Field_frame_protocols()), ":")
 
@@ -88,10 +96,6 @@ function Tap_Frame.packet(pinfo, tvb, tapinfo)
         currentPosition = currentPosition + 1
     end
 
-
-
-    print("Current position: " .. currentPosition)
-
     --Add counts to existing anonymizers
     --A protocol can appear multiple times
     --When fetching the individual protocol fields it is important to know which instance of the protocol this is in the chain
@@ -100,9 +104,6 @@ function Tap_Frame.packet(pinfo, tvb, tapinfo)
     for protocolName, protocol in pairs(protocols) do 
         protocol.relativeStackPosition = shanonHelpers.countOccurences(protocolList, protocolCount, protocol.filterName, currentPosition)
     end
-
-    --TODO: Remove temporary prints
-    print(Field_frame_protocols()) 
     
     --Check if this packet contains partial data
     local frameLength = Field_frame_lengthOnWire().value
@@ -122,7 +123,9 @@ function Tap_Frame.packet(pinfo, tvb, tapinfo)
             if protocolList[currentPosition] == protocol.filterName then
                 --This is a protocol we know how to deal with
                 protocolMatchFound = true
-                status, output = pcall(protocol.anonymize, tvb, protocolList, currentPosition, anonymizedFrame, config)
+                --The comment value is local here as we do not want to preserve it beyond this block
+                local comment
+                status, output, comment = pcall(protocol.anonymize, tvb, protocolList, currentPosition, anonymizedFrame, config)
                 if status == false then 
                     --Clear the anonymized frame so erroneous output isn't accidentally preserved
                     anonymizedFrame = ""
@@ -134,8 +137,17 @@ function Tap_Frame.packet(pinfo, tvb, tapinfo)
                         ". Anonymizer for protocol: \"" .. protocolName .. "\" encountered an error. Check log for details."
                         )
                 else
-                    --If everything went smoothly, set the anonymized frame to our anonymizer's output
+                    --If everything went smoothly, set the anonymized frame to our anonymizer's output and the frameComment to the comment
                     anonymizedFrame = output
+                    if comment ~= nil and comment ~= "" then 
+                        --Anonymizers don't need to produce comments so we need to check if a comment was produced before concatenating
+                        if frameComment ~= "" then 
+                            --If the comment already has contents, add a newline to separate lines visually
+                            --If not, this newline is unnecessary
+                            frameComment = frameComment .. "\n"
+                        end
+                        frameComment = frameComment .. comment
+                    end
                 end
                 --End the loop here
                 break
@@ -153,10 +165,12 @@ function Tap_Frame.packet(pinfo, tvb, tapinfo)
         --If we do not find a matching protocol, we log it and set the frame to empty here so the next protocol knows
         --to treat the lower layer stuff as data
         if not protocolMatchFound then 
-            --TODO: This is a lot of log data. Provide an option to mute it if it's not of interest to the user
-            shanonHelpers.writeLog(shanonHelpers.logInfo, "Unhandled protocol: \"" .. protocolList[currentPosition] 
-            .. "\" encountered in frame " .. frameNumber.value .. 
-            " This protocol will be treated as data by lower layer protocols and will be anonymized as data.")
+            if config.logUnhandledProtocols ~= nil and config.logUnhandledProtocols == true then 
+                shanonHelpers.writeLog(shanonHelpers.logInfo, "Unhandled protocol: \"" .. protocolList[currentPosition] 
+                    .. "\" encountered in frame " .. frameNumber.value .. 
+                    " This protocol will be treated as data by lower layer protocols and will be anonymized as data.")
+            end
+            
             --If we encounter something unknown, we simply set the anonymized frame empty again
             anonymizedFrame = ""
             --An empty frame signals to anonymizer functions that higher layer protocols should be treated as data
@@ -169,10 +183,10 @@ function Tap_Frame.packet(pinfo, tvb, tapinfo)
     
     --At this point we will have parsed and anonymized all protocolsP
      --We can write the anonymized frame to the capture file
-    writePacket(pinfo, anonymizedFrame, frameNumber)
+    writePacket(pinfo, anonymizedFrame, frameNumber, frameComment)
 end
 
-function writePacket(pinfo, anonymizedFrame, frameNumber)
+function writePacket(pinfo, anonymizedFrame, frameNumber, frameComment)
 
     --Timestamp default value is relative
     local timestampValue = pinfo.rel_ts
@@ -187,7 +201,14 @@ function writePacket(pinfo, anonymizedFrame, frameNumber)
 
     --Write frame
     if anonymizedFrame ~= "" then
-        libAnonLua.write_packet(filesystemPath, anonymizedFrame, 0, timestampValue)
+        if frameComment ~= "" then 
+            --If we have a comment add it to the frame
+            libAnonLua.write_packet(filesystemPath, anonymizedFrame, 0, timestampValue, frameComment)
+        else 
+            --Otherwise write the frame without a comment 
+            libAnonLua.write_packet(filesystemPath, anonymizedFrame, 0, timestampValue)
+        end
+        
     else
         --If the frame is empty we don't write it. We log it.
         shanonHelpers.writeLog(shanonHelpers.logError, "Error in frame: " .. frameNumber.value .. ". " .. "No data to write to output file. This may happen if there was another error or if the lowest layer protocol in this frame could not be processed.")

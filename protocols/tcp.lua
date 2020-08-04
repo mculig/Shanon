@@ -79,11 +79,13 @@ TCP.seqAckTable = {}
 TCP.policyValidation = {
     sourcePort = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep", "KeepRange", "Zero"}),
     destinationPort = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep", "KeepRange", "Zero"}),
+    seqAck = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep", "Recalculate"}),
     flagUrgent =shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep", "Zero"}),
     checksum = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep", "Recalculate"}),   
     urgentPointer = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep",  "Zero"}),
     optTimestamp = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep", "Discard"}, shanonPolicyValidators.validateBlackMarker, nil),
-    payload = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"ZeroMinimumLength", "ZeroOriginalLength", "Keep","Anonymized1","Anonymized2"})
+    payload = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"ZeroMinimumLength", "ZeroOriginalLength", "Keep","Anonymized1","Anonymized2"}),
+    metaStreamIndex = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Preserve", "Discard"})
 }
 
 function TCP.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, config)
@@ -93,8 +95,16 @@ function TCP.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, conf
     local relativeStackPosition = TCP.relativeStackPosition
     TCP.relativeStackPosition = TCP.relativeStackPosition - 1
 
+    --The comment for this segment. Used to preserve metadata in the form of comments on packets
+    local comment = ""
+
     --Shorthand to make life easier
     local policy = config.anonymizationPolicy.tcp
+
+    --If a frame has TCP in it we will preserve the TCP stream index as a comment to enable analysis despite anonymization being destructive
+    if policy.metaStreamIndex == "Preserve" then 
+        comment = comment .. "original_stream_index = " .. shanonHelpers.getValue(TCP.streamIndex, relativeStackPosition)
+    end
 
     --Get fields
     --Fields not existing means we have a partial protocol header and we do not process those, so in that case we return an empty anonymizedFrame
@@ -186,8 +196,14 @@ function TCP.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, conf
         end
     end
 
-    --Seq and Ack need special recalculation done
-    tcpSeqAnon, tcpAckAnon = TCP.remapSeqAck(relativeStackPosition, anonymizedFrame:len())
+    --SEQ and ACK values
+    if policy.seqAck == "Keep" then 
+        tcpSeqAnon = tcpSeq
+        tcpAckAnon = tcpAck
+    else 
+        --Seq and Ack need special recalculation done
+        tcpSeqAnon, tcpAckAnon = TCP.remapSeqAck(relativeStackPosition, anonymizedFrame:len())
+    end    
 
     --Anonymization of the urgent flag
     --This needs to happen before options are handled because we change the value in the anonymized field there
@@ -226,7 +242,7 @@ function TCP.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, conf
     local tcpHeader = tcpSrcPortAnon .. tcpDstPortAnon .. tcpSeqAnon .. tcpAckAnon .. tcpOffsetReservedFlagsAnon 
     tcpHeader = tcpHeader .. tcpWindowAnon .. tcpChecksumAnon .. tcpUrgentAnon .. tcpOptions
 
-    return tcpHeader .. anonymizedFrame
+    return tcpHeader .. anonymizedFrame, comment
 end
 
 function TCP.handleOptions(tvb, relativeStackPosition, config)
@@ -494,7 +510,7 @@ function TCP.handleOptions(tvb, relativeStackPosition, config)
 end
 
 --Function for handling TCP SEQ and ACK remapping
-function TCP.remapSeqAck(relativeStackPosition, payloadLength)
+function TCP.remapSeqAck(relativeStackPosition)
 
     --When incrementing a sequence number since it can only go up to 2^32-1 a modulo operation with 2^32 is performed for wrap-around
     local seqNumberMod = 4294967296
@@ -512,9 +528,6 @@ function TCP.remapSeqAck(relativeStackPosition, payloadLength)
     local synFlag = shanonHelpers.getValue(TCP.synFlag, relativeStackPosition)
     local finFlag = shanonHelpers.getValue(TCP.finFlag, relativeStackPosition)
     local ackFlag = shanonHelpers.getValue(TCP.ackFlag, relativeStackPosition)
-
-    --TODO: Remove print
-    print("Stream index: " .. streamIndex)
 
     --Check if we have an entry in our table
     if TCP.seqAckTable[streamIndex] == nil then 
@@ -534,22 +547,12 @@ function TCP.remapSeqAck(relativeStackPosition, payloadLength)
   
     end
 
-    --If the syn flag is set or the fin flag is set, our payload length is 1
-    if synFlag or finFlag then 
-        payloadLength = 1
-    end     
-
-    --TODO: Handle spurious retransmissions
-    --TODO: Handle out-of-order packets
-
     --Set the current SEQ to the next SEQ
     TCP.seqAckTable[streamIndex][srcPortOrg].Seq = TCP.seqAckTable[streamIndex][srcPortOrg].NextSeq
     --Increment the next SEQ
-    TCP.seqAckTable[streamIndex][srcPortOrg].NextSeq = (TCP.seqAckTable[streamIndex][srcPortOrg].Seq + payloadLength) % seqNumberMod
+    TCP.seqAckTable[streamIndex][srcPortOrg].NextSeq = (TCP.seqAckTable[streamIndex][srcPortOrg].Seq + 1) % seqNumberMod
     --Set the destination ACK to the next SEQ
     TCP.seqAckTable[streamIndex][dstPortOrg].Ack = TCP.seqAckTable[streamIndex][srcPortOrg].NextSeq
-
-    --TODO: remove table entry on TCP session close.
 
     --Calculate return values
     local seq, ack 

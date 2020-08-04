@@ -8,6 +8,18 @@ Config.outputFile = "shanon_output.pcapng"
 --The key file to use for the CryptoPAN algorithm
 Config.cryptoPANKeyFile = "shanon_cryptoPAN.key"
 
+--Should unhandled protocols be logged
+--Options:
+--True: Each instance of a protocol Shanon does not handle will be logged to the log file
+--False: logging will not occur
+Config.logUnhandledProtocols = false
+
+--Should the name of the anonymization tool be written to the packet comments
+--Options:
+--True: Packets will have a comment stating the name and version of Shanon and libAnonLua used
+--False: Packets will not have this comment
+Config.commentToolInformation = true
+
 --The anonymization policy. This policy is made up of anonymization rules for the individual protocols Shanon supports
 --If a protocol is omitted a default policy will be used for that protocol
 Config.anonymizationPolicy = {}
@@ -224,6 +236,7 @@ Config.anonymizationPolicy.icmpv6 = {
 
 --The anonymization policy for NDP
 --This policy is validated together with ICMPv6 since the anonymization of NDP is done by the ICMPv6 anonymizer
+--NDP checksums are processed the same as ICMPv6 checksums
 Config.anonymizationPolicy.ndp = {
     --Router Advertisement
     --Hop Limit
@@ -284,7 +297,7 @@ Config.anonymizationPolicy.udp = {
     --UDP Source and Destination Ports
     --Options:
     --Keep: Keep the original source port
-    --KeepRange: Keep the original source port range, but not the specific pot number
+    --KeepRange: Keep the original source port range, but not the specific port number
     --Zero: Set the port to zero
     sourcePort = "KeepRange",
     destinationPort = "KeepRange",
@@ -298,19 +311,29 @@ Config.anonymizationPolicy.udp = {
     --Options: 
     --ZeroMinimumLength: Generate a 20 byte payload of zeroes. This value ensures that in the worst case the payload for Ethernet is 48B, 2 bytes more than the minimum
     --ZeroOriginalLength: Generate a payload of zeroes matching the original length
-    --Keep: Keep the original payload, preserving the length
+    --Keep: Keep the original payload, preserving the length and contents
     --Anonymized1: Keep an anonymized payload if present OR use ZeroMinimumLength
     --Anonymized2: Keep an anonymized payload if present OR use ZeroOriginalLength
-    payload = "Anonymized1"
+    payload = "Anonymized1",
+    --Metadata options. This information is added to packets containing this protocol in the form of comments
+    --Options: 
+    --Preserve: Save the metadata as a comment on the captured packet. This enables filtering by comment contents
+    --Discard: Do not save the metadata as a comment
+    --The stream index assigned to this UDP stream by Wireshark during capture
+    metaStreamIndex = "Discard"
 }
 
 --The anonymization policy for TCP
---TODO: WIP
 Config.anonymizationPolicy.tcp = {
     --TCP Source and Destination Ports
     --The options are the same as for UDP
     sourcePort = "KeepRange",
     destinationPort = "KeepRange",
+    --TCP sequence and acknowledgement numbers
+    --Options:
+    --Keep: Keep the original SEQ and ACK values
+    --Recalculate: Recalculate SEQ and ACK values
+    seqAck = "Recalculate",
     --TCP Urgent Flag.
     --Options:
     --Keep: Keep this flag
@@ -336,10 +359,16 @@ Config.anonymizationPolicy.tcp = {
     --Options: 
     --ZeroMinimumLength: Generate a 20 byte payload of zeroes. The value could be lower here to meet the Ethernet minimum, but is kept at 20 for consistency
     --ZeroOriginalLength: Generate a payload of zeroes matching the original length
-    --Keep: Keep the original payload, preserving the length
+    --Keep: Keep the original payload, preserving the length and contents
     --Anonymized1: Keep an anonymized payload if present OR use ZeroMinimumLength
     --Anonymized2: Keep an anonymized payload if present OR use ZeroOriginalLength
-    payload = "Anonymized1"
+    payload = "Anonymized1",
+    --Metadata options. This information is added to packets containing this protocol in the form of comments
+    --Options: 
+    --Preserve: Save the metadata as a comment on the captured packet. This enables filtering by comment contents
+    --Discard: Do not save the metadata as a comment
+    --The stream index assigned to this TCP stream by Wireshark during capture
+    metaStreamIndex = "Preserve",
 }
 
 

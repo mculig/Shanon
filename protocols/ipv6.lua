@@ -218,11 +218,10 @@ function IPv6.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, con
     --Deal with TCP, UDP and ICMPv6 checksums here
     local payloadProtoName = IPv6.getPayloadProtocolName(protocolList, currentPosition)
 
-    --TODO: Check in protocol policies if the checksum should be recalculated or not
-    if payloadProtoName == "icmpv6" then 
+    if payloadProtoName == "icmpv6" and config.anonymizationPolicy.icmpv6.checksum == "Recalculate" then 
         local icmpv6Checksum
         icmpv6Checksum, ipv6PacketAnon = libAnonLua.calculate_icmpv6_checksum(ipv6PacketAnon)
-    elseif payloadProtoName == "tcp" then 
+    elseif payloadProtoName == "tcp" and config.anonymizationPolicy.tcp.checksum == "Recalculate" then 
         local checksumAnon, anonymizedFrame = libAnonLua.calculate_tcp_udp_checksum(ipv6PacketAnon)
         ipv6PacketAnon = ipv6HeaderAndOptionsAnon .. anonymizedFrame
     elseif payloadProtoName == "udp" and config.anonymizationPolicy.udp.checksum == "Recalculate" then 

@@ -18,13 +18,15 @@ UDP.srcport = Field.new("udp.srcport")
 UDP.dstport = Field.new("udp.dstport")
 UDP.length = Field.new("udp.length")
 UDP.checksum = Field.new("udp.checksum")
+UDP.streamIndex = Field.new("udp.stream")
 
 --Policy validation functions
 UDP.policyValidation = {
     sourcePort = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep", "KeepRange", "Zero"}),
     destinationPort = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep", "KeepRange", "Zero"}),
     checksum = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Keep", "Zero", "Recalculate"}),
-    payload = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"ZeroMinimumLength", "ZeroOriginalLength", "Keep","Anonymized1","Anonymized2"})
+    payload = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"ZeroMinimumLength", "ZeroOriginalLength", "Keep","Anonymized1","Anonymized2"}),
+    metaStreamIndex = shanonPolicyValidators.policyValidatorFactory(false, shanonPolicyValidators.isPossibleOption, {"Preserve", "Discard"})
 }
 
 function UDP.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, config)
@@ -36,6 +38,14 @@ function UDP.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, conf
 
     --Shorthand to make life easier
     local policy = config.anonymizationPolicy.udp
+
+    --The comment for this m,essage. Used to preserve metadata in the form of comments on packets
+    local comment = ""
+    
+    --If a frame has UDP in it we will preserve the UDP stream index as a comment to enable analysis despite anonymization being destructive
+    if policy.metaStreamIndex == "Preserve" then 
+        comment = comment .. "original_stream_index = " .. shanonHelpers.getValue(UDP.streamIndex, relativeStackPosition)
+    end
 
     --Get fields
     local udpSrc = shanonHelpers.getRaw(tvb, UDP.srcport, relativeStackPosition)
@@ -117,7 +127,7 @@ function UDP.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, conf
 
     --Write to the anonymized frame here
     local udpDatagram = udpSrcAnon .. udpDstAnon .. udpLengthAnon .. udpChecksumAnon .. anonymizedFrame
-    return udpDatagram
+    return udpDatagram, comment
 end
 
 function UDP.validatePolicy(config)

@@ -45,6 +45,15 @@ function M.getValue(fieldExtractor, relativeStackPosition)
 	return fieldInfo[relativeStackPosition].value
 end
 
+--Helper to get the value of a field that may not be present
+function M.getValueOptional(fieldExtractor, relativeStackPosition)
+	local fieldInfo = { fieldExtractor() }
+	if fieldInfo[relativeStackPosition] == nil then
+		return nil
+	end
+	return fieldInfo[relativeStackPosition].value
+end
+
 --Get length bytes following a particular field
 function M.getBytesAfterField(tvb, fieldExtractor, relativeStackPosition, length)
 	local fieldInfo = { fieldExtractor() }
