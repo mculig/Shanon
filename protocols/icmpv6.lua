@@ -746,17 +746,17 @@ function ICMPv6.handleOptions(tvb, icmpv6Start, icmpv6End, config)
 
             --Anonymize fields
             --Option types and lengths aren't anonymized
-            mtuOptionTypeAnon = mtuTypes[mtuCount]
+            mtuOptionTypeAnon = mtuOptionTypes[mtuCount]
             mtuOptionLengthAnon = mtuOptionLengths[mtuCount]
 
             --Reserved field
-            mtuReservedAnon = ByteArray:new("0000"):raw()
+            mtuReservedAnon = ByteArray.new("0000"):raw()
 
             --MTU
             if policyNDP.optMtuMtu == "Keep" then 
                 mtuMtuAnon = mtuMtus[mtuCount]
             elseif policyNDP.optMtuMtu == "Zero" then 
-                mtuMtuAnon = ByteArray:new("00000000"):raw()
+                mtuMtuAnon = ByteArray.new("00000000"):raw()
             else
                 mtuMtuAnon = shanonHelpers.getSetValueBytes(policyNDP.optMtuMtu, 4)
             end

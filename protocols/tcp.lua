@@ -141,7 +141,7 @@ function TCP.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, conf
     elseif policy.sourcePort == "KeepRange" then 
         tcpSrcPortAnon = libAnonLua.get_port_range(tcpSrcPort)
     else 
-        tcpSrcPortAnon = ByteArray:new("0000"):raw()
+        tcpSrcPortAnon = ByteArray.new("0000"):raw()
     end
     
     --Dst port
@@ -150,7 +150,7 @@ function TCP.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, conf
     elseif policy.destinationPort == "KeepRange" then 
         tcpDstPortAnon = libAnonLua.get_port_range(tcpDstPort)
     else 
-        tcpDstPortAnon = ByteArray:new("0000"):raw()
+        tcpDstPortAnon = ByteArray.new("0000"):raw()
     end
     
     --The TCP window won't be changed

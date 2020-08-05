@@ -97,7 +97,11 @@ function ICMP.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, con
     if tmpType == 0 or tmpType == 8 then
         --Echo and Echo Reply
         --Get fields
-        local icmpId = shanonHelpers.getOnlyOneWithinBoundariesRaw(tvb, ICMP.identifier, icmpStart, icmpEnd)
+        --The ICMP identifier has 2 fields in Wireshark for each ICMP message. One is Big Endian and the other Little Endian. 
+        --Since Wireshark returns 2 values when this function is called, we need to make sure to take that into account
+        --Since we're getting raw byte values from the tvb we don't really care which of the 2 results we use, but we use the 1st one
+        local icmpId = select(2, shanonHelpers.getAllWithinBoundariesRaw(tvb, ICMP.identifier, icmpStart, icmpEnd, 2))
+        icmpId = icmpId[1]
         local icmpSeq = shanonHelpers.getOnlyOneWithinBoundariesRaw(tvb, ICMP.sequenceNumber, icmpStart, icmpEnd)
         local icmpData = shanonHelpers.getBytesAfterOnlyOneWithinBoundaries(tvb, ICMP.sequenceNumber,  icmpStart, icmpEnd)
 
@@ -265,7 +269,8 @@ function ICMP.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, con
     elseif tmpType == 13 or tmpType == 14 then
         --Timestamp and timestamp reply
         --Get fields
-        --The icmpIdentifier is interesting because Wireshark has 2 fields of this type for timestamps. The fields seem to be Little Endian and Big Endian representations
+        --The icmpIdentifier is interesting because Wireshark has 2 fields for it. The fields seem to be Little Endian and Big Endian representations
+        --Our method will get the same tvb bytes for both, but we'll still produce 2 results due to how it works
         --We'll expect 2, so an error will be thrown if there are more, then grab the 1st one as they should contain the same value
         local icmpIdentifier = select(2, shanonHelpers.getAllWithinBoundariesRaw(tvb, ICMP.identifier, icmpStart, icmpEnd, 2))
         icmpIdentifier = icmpIdentifier[1] 
