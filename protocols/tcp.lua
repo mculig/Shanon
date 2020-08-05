@@ -36,6 +36,7 @@ TCP.streamIndex = Field.new("tcp.stream")
 TCP.synFlag = Field.new("tcp.flags.syn")
 TCP.finFlag = Field.new("tcp.flags.fin")
 TCP.ackFlag = Field.new("tcp.flags.ack")
+TCP.segmentLength = Field.new("tcp.len")
 
 --TCP Options
 TCP.OPT = {}
@@ -202,7 +203,7 @@ function TCP.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, conf
         tcpAckAnon = tcpAck
     else 
         --Seq and Ack need special recalculation done
-        tcpSeqAnon, tcpAckAnon = TCP.remapSeqAck(relativeStackPosition, anonymizedFrame:len())
+        tcpSeqAnon, tcpAckAnon = TCP.remapSeqAck(relativeStackPosition)
     end    
 
     --Anonymization of the urgent flag
@@ -528,6 +529,7 @@ function TCP.remapSeqAck(relativeStackPosition)
     local synFlag = shanonHelpers.getValue(TCP.synFlag, relativeStackPosition)
     local finFlag = shanonHelpers.getValue(TCP.finFlag, relativeStackPosition)
     local ackFlag = shanonHelpers.getValue(TCP.ackFlag, relativeStackPosition)
+    local payloadLength = shanonHelpers.getValue(TCP.segmentLength, relativeStackPosition)
 
     --Check if we have an entry in our table
     if TCP.seqAckTable[streamIndex] == nil then 
@@ -539,31 +541,107 @@ function TCP.remapSeqAck(relativeStackPosition)
         --Start SEQ and ACK at 0
         TCP.seqAckTable[streamIndex][srcPortOrg].Seq = 0
         TCP.seqAckTable[streamIndex][srcPortOrg].NextSeq = 0
+        TCP.seqAckTable[streamIndex][srcPortOrg].AckPrevious = 0
         TCP.seqAckTable[streamIndex][srcPortOrg].Ack = 0
-
+        
         TCP.seqAckTable[streamIndex][dstPortOrg].Seq = 0
         TCP.seqAckTable[streamIndex][dstPortOrg].NextSeq = 0
+        TCP.seqAckTable[streamIndex][dstPortOrg].AckPrevious = 0
         TCP.seqAckTable[streamIndex][dstPortOrg].Ack = 0
   
+        --Expected receive values for both sides
+        --This is used to help detect out of order packets and retransmissions and anonymize accordingly
+        TCP.seqAckTable[streamIndex][srcPortOrg].SeqExpected = nil
+        TCP.seqAckTable[streamIndex][srcPortOrg].AckExpected = nil
+
+        TCP.seqAckTable[streamIndex][dstPortOrg].SeqExpected = nil
+        TCP.seqAckTable[streamIndex][dstPortOrg].AckExpected = nil
+
     end
 
-    --Set the current SEQ to the next SEQ
-    TCP.seqAckTable[streamIndex][srcPortOrg].Seq = TCP.seqAckTable[streamIndex][srcPortOrg].NextSeq
-    --Increment the next SEQ
-    TCP.seqAckTable[streamIndex][srcPortOrg].NextSeq = (TCP.seqAckTable[streamIndex][srcPortOrg].Seq + 1) % seqNumberMod
-    --Set the destination ACK to the next SEQ
-    TCP.seqAckTable[streamIndex][dstPortOrg].Ack = TCP.seqAckTable[streamIndex][srcPortOrg].NextSeq
+    --Check if the SYN or FIN flags are set. If yes, payloadLength = 1
+    if synFlag or finFlag then 
+        payloadLength = 1
+    end
+
+    --The amount to increment the SEQ in our anonymized value
+    local incrementValue = 0
+
+    --If we have a payload, we increment our sequence counter
+    if payloadLength >= 1 then 
+        incrementValue = 1
+    end
+
+    --Used to evaluate if SEQ and ACK are okay after testing
+    local seqOK = false
+    local ackOK = false
+    local retransmission = false 
+
+    --If SeqExpected matches, treat it as a match and mark the packets
+    if TCP.seqAckTable[streamIndex][srcPortOrg].SeqExpected == seqOrg or TCP.seqAckTable[streamIndex][srcPortOrg].SeqExpected == nil then 
+        --Packet is at expected position in sequence OR we haven't observed enough packets to know for sure
+        --Mark SEQ as OK
+        seqOK = true 
+        --Set up the expected SEQ for the next packet
+        TCP.seqAckTable[streamIndex][srcPortOrg].SeqExpected = (seqOrg + payloadLength) % seqNumberMod
+    else
+        --Packet is out of order
+        --Mark SEQ as not OK
+        seqOK = false
+    end
+
+    if TCP.seqAckTable[streamIndex][srcPortOrg].AckExpected == ackOrg or TCP.seqAckTable[streamIndex][srcPortOrg].AckExpected == nil then 
+        --Packet has expected ACK value OR we haven't observed enough packets to know for sure
+        ackOK = true
+        --Set up the expected ACK for the next reply
+        TCP.seqAckTable[streamIndex][dstPortOrg].AckExpected = TCP.seqAckTable[streamIndex][srcPortOrg].SeqExpected
+    else 
+        --Packet has duplicate ACK or other issue
+        ackOK = false
+    end
+
+    if seqOK then 
+        --If the SEQ matches we can increment SEQ as expected
+        --Set the current SEQ to the next SEQ
+        TCP.seqAckTable[streamIndex][srcPortOrg].Seq = TCP.seqAckTable[streamIndex][srcPortOrg].NextSeq
+        --Increment the next SEQ
+        TCP.seqAckTable[streamIndex][srcPortOrg].NextSeq = (TCP.seqAckTable[streamIndex][srcPortOrg].Seq + incrementValue) % seqNumberMod
+    end
+
+    if ackOK then 
+        --If the ACK matches we can increment ACK as expected
+        --Set the previous ACK to the curent ACK
+        TCP.seqAckTable[streamIndex][dstPortOrg].AckPrevious = TCP.seqAckTable[streamIndex][dstPortOrg].Ack
+        --Set the destination ACK to the next SEQ
+        TCP.seqAckTable[streamIndex][dstPortOrg].Ack = TCP.seqAckTable[streamIndex][srcPortOrg].NextSeq
+    end
 
     --Calculate return values
     local seq, ack 
 
-    --Seq is always the current SEQ
-    seq = TCP.seqAckTable[streamIndex][srcPortOrg].Seq
-
-    --If the ACK flag isn't set ACK should be 0
-    if ackFlag then 
-        ack = TCP.seqAckTable[streamIndex][srcPortOrg].Ack
+    if not seqOK then 
+        --Seq is the next SEQ - 1
+        seq = TCP.seqAckTable[streamIndex][srcPortOrg].NextSeq - 1
+        if seq < 0 then 
+            --If we decrement below 0 we need to reverse wrap-around
+            seq = seqNumberMod - 1
+        end
     else 
+        --Seq is the current SEQ
+        seq = TCP.seqAckTable[streamIndex][srcPortOrg].Seq
+    end
+
+    --Setting ack
+    if ackFlag then 
+        --If ack is set, put a value in it
+        if not seqOK then 
+            --Ack is the previous ACK
+            ack = TCP.seqAckTable[streamIndex][srcPortOrg].AckPrevious
+        else
+            ack = TCP.seqAckTable[streamIndex][srcPortOrg].Ack
+        end
+    else
+        --If ack isn't set, ack is 0
         ack = 0
     end
 

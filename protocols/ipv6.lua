@@ -137,8 +137,20 @@ function IPv6.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, con
         local mask = ByteArray.new("F0000000"):raw()
         versionClassLabelAnon = libAnonLua.apply_mask(versionClassLabel, mask)
     end
-
-    --TODO: Set 1st 4 bits of versionClassLabelAnon to 6 for IPv6
+    
+    --Set 1st 4 bits of versionClassLabelAnon to 6 for IPv6
+    --Get 1st byte
+    local versionClassLabelAnonFirstByte = versionClassLabelAnon:sub(1,1)
+    --Turn it into a number by getting the decimal equivalent
+    local versionClassLabelAnonFirstByteNumber = versionClassLabelAnonFirstByte:byte(1)
+    --The rest of division by 16 is the lower 4 bits
+    local versionClassLabelAnonFirstByteNumberLowerHalf = versionClassLabelAnonFirstByteNumber % 16
+    --Add 96 to set the correct value of the 1st 4 bits for IPv6
+    local correctFirstByte = versionClassLabelAnonFirstByteNumberLowerHalf + 96
+    --Transform this into a byte again
+    local correctFirstByteRaw = ByteArray.new(string.format("%02X", correctFirstByte)):raw()
+    --Replace the 1st byte with this value
+    versionClassLabelAnon = correctFirstByteRaw .. versionClassLabelAnon:sub(2)
     
     --Find the higher-layer protocol and try to set the next header if we recognize it
     --If there are no options we can parse or they're all skipped this ensures we're still pointing to the higher layer protocol
