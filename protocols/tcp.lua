@@ -396,8 +396,17 @@ function TCP.handleOptions(tvb, relativeStackPosition, config)
                 local sackREAnon
 
                 --Anonymize fields
-                sackLEAnon = sackLE[i]
-                sackREAnon = sackRE[i]
+                --If we aren't keeping the original sequence numbers we set he selective acknowledgements to 0
+                --This is because actually assigning correct values, even recalculated ones, would require either 2 passes OR
+                --storing a crazy amount of sequence and acknowledgement numbers per stored TCP session to make sure
+                --we can figure out where in the sequence these would plausibly belong
+                if policy.seqAck == "Keep" then 
+                    sackLEAnon = sackLE[i]
+                    sackREAnon = sackRE[i]
+                else
+                    sackLEAnon = ByteArray.new("00000000"):raw()
+                    sackREAnon = ByteArray.new("00000000"):raw()
+                end
 
                 --Add to payload
                 sackPayload = sackPayload .. sackLEAnon .. sackREAnon
