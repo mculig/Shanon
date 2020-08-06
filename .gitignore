@@ -2,4 +2,5 @@
 *.csv
 *.pcapng
 *.log
+*.key
 Tests
