@@ -82,15 +82,29 @@ function ARP.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, conf
 
     --For protocol addresses the same anonymization scheme as for IPv4 is used
     local addressPolicy
+
     --If we have per-subnet policies
     if policy.ipv4.subnets ~= nil then
         for subnet, subnetPolicy in pairs(policy.ipv4.subnets) do
-            if libAnonLua.ip_in_subnet(arpProtoAddrSrc, subnet) or libAnonLua.ip_in_subnet(arpProtoAddrDst, subnet) then 
+            if libAnonLua.ip_in_subnet(arpProtoAddrSrc, subnet) then 
                 addressPolicy = subnetPolicy
                 break
             end
         end
     end
+
+    --If we still don't have a policy selected yet we try the destination address
+    if addressPolicy == nil then 
+        if policy.ipv4.subnets ~= nil then
+            for subnet, subnetPolicy in pairs(policy.ipv4.subnets) do
+                if libAnonLua.ip_in_subnet(arpProtoAddrDst, subnet) then 
+                    addressPolicy = subnetPolicy
+                    break
+                end
+            end
+        end
+    end
+
     --If we don't have a matching subnet, use the default
     if addressPolicy == nil then
         addressPolicy = policy.ipv4.default

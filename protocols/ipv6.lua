@@ -109,16 +109,28 @@ function IPv6.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, con
     --Anonymize stuff here
     local policy
 
-    --Check if we have a policy for subnets and if our source or destination addresses match and of the subnets specified in the policy
+    --Check if we have a policy for subnets and if our source address matches and of the subnets specified in the policy
     if config.anonymizationPolicy.ipv6.subnets ~= nil then
         for subnet, subnetPolicy in pairs(config.anonymizationPolicy.ipv6.subnets) do
-            if libAnonLua.ip_in_subnet(src, subnet) or libAnonLua.ip_in_subnet(dst, subnet) then
+            if libAnonLua.ip_in_subnet(src, subnet) then
                 policy = subnetPolicy
                 break
             end
         end
     end
     
+    --If we didn't find a matching subnet for the source, try the destination address
+    if policy == nil then 
+        if config.anonymizationPolicy.ipv6.subnets ~= nil then
+            for subnet, subnetPolicy in pairs(config.anonymizationPolicy.ipv6.subnets) do
+                if libAnonLua.ip_in_subnet(dst, subnet) then
+                    policy = subnetPolicy
+                    break
+                end
+            end
+        end
+    end
+
     --If we didn't find a specific policy for this subnet, use the default
     if policy == nil then 
         policy = config.anonymizationPolicy.ipv6.default

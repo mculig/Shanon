@@ -496,12 +496,24 @@ function ICMPv6.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, c
 
         local addressPolicy
 
-        --Check if we have a policy for subnets and if our source or destination addresses match and of the subnets specified in the policy
+        --Check if we have a policy for subnets and if our source address matches any of the subnets specified in the policy
         if policyIPv6.subnets ~= nil then
             for subnet, subnetPolicy in pairs(policyIPv6.subnets) do
-                if libAnonLua.ip_in_subnet(redirectTarget, subnet) or libAnonLua.ip_in_subnet(redirectDestination, subnet) then
+                if libAnonLua.ip_in_subnet(redirectTarget, subnet) then
                     addressPolicy = subnetPolicy
                     break
+                end
+            end
+        end
+
+        --If we didn't find a policy for the source address try the destination address
+        if addressPolicy == nil then 
+            if policyIPv6.subnets ~= nil then
+                for subnet, subnetPolicy in pairs(policyIPv6.subnets) do
+                    if libAnonLua.ip_in_subnet(redirectDestination, subnet) then
+                        addressPolicy = subnetPolicy
+                        break
+                    end
                 end
             end
         end

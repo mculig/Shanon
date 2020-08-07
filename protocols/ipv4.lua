@@ -71,15 +71,28 @@ function IPv4.anonymize(tvb, protocolList, currentPosition, anonymizedFrame, con
     --Local policy shorthand so we don't have to type a long policy table name every time.
     local policy
 
-    --Check if we have a policy for subnets and if our source or destination addresses match any of the subnets specified in the policy
+    --Check if we have a policy for subnets and if our source address matches any of the subnets specified in the policy
     if config.anonymizationPolicy.ipv4.subnets ~= nil then 
         for subnet, subnetPolicy in pairs(config.anonymizationPolicy.ipv4.subnets) do
-            if libAnonLua.ip_in_subnet(ipSrc, subnet) or libAnonLua.ip_in_subnet(ipDst, subnet) then
+            if libAnonLua.ip_in_subnet(ipSrc, subnet) then
                 policy = subnetPolicy
                 break
             end
         end
     end
+
+    --If we still don't have a policy, try the destination address
+    if policy == nil then 
+        if config.anonymizationPolicy.ipv4.subnets ~= nil then 
+            for subnet, subnetPolicy in pairs(config.anonymizationPolicy.ipv4.subnets) do
+                if libAnonLua.ip_in_subnet(ipDst, subnet) then
+                    policy = subnetPolicy
+                    break
+                end
+            end
+        end
+    end
+    
 
     --If we didn't find a specific policy for this subnet, use the default
     if policy == nil then 

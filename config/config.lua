@@ -200,7 +200,6 @@ Config.anonymizationPolicy.ipv6 = {
         --The rules can be specified in the same way as for IPv4 addresses. See the IPv4 policy for details
         --IPv6 validation is complex and as such some invalid addresses can still make it through. Please take extra care that subnets are properly defined
         address = {
-            ["fe80::/10"] = {"Keep"},
             default = {"CryptoPAN"}
         }
     }
