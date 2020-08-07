@@ -21,7 +21,6 @@ Config.logUnhandledProtocols = false
 Config.commentToolInformation = true
 
 --The anonymization policy. This policy is made up of anonymization rules for the individual protocols Shanon supports
---If a protocol is omitted a default policy will be used for that protocol
 Config.anonymizationPolicy = {}
 
 --The anonymization policy for the frame as written in the pcapng filesystem
